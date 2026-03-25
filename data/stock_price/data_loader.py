@@ -45,7 +45,7 @@ class LoadData:
 
 
 
-# Test case
+# Test Case
 if __name__ == "__main__":
     data_loader = LoadData(symbol='DIG')
     df = data_loader.fetch_stock_price_data(for_train=False)
