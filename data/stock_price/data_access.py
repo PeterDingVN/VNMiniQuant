@@ -11,7 +11,7 @@ class AccessData(LoadData):
         super().__init__(**kwargs)
         self.file_path = BASE_DIR / "data_cache" / f'{self.symbol}.parquet'
 
-    # SubFunc: Check if the dataset already exist
+    # ===== SubFunc: Check if the dataset already exist =====
     def check_path_existence(self) -> Path|None:
 
         if self.file_path.exists():
@@ -19,14 +19,14 @@ class AccessData(LoadData):
         else:
             return None
 
-    # Subfunc: If the data path is there, is it up to date?
+    # ===== Subfunc: If the data path is there, is it up to date? =====
     def data_is_updated(self, df: pd.DataFrame, date_col: str = 'time') -> bool:
         latest = pd.to_datetime(df[date_col]).max().date()
         today = datetime.now().date()
         delta = (today - latest).days
         return delta == 0 or (delta <= 2 and today.weekday() in (5, 6))
 
-    # MAIN FUNC: Access the data accordingly
+    # ===== MAIN FUNC: Access the data accordingly =====
     def access_data(self, purpose:
                     str = "train",
                     replace_old_data: bool = False) -> pd.DataFrame:
@@ -42,15 +42,23 @@ class AccessData(LoadData):
             data_.to_parquet(self.file_path, index=False)
         data_ori = pd.read_parquet(self.file_path)
 
-        # If file exist then:
-        # -> return if purpose = train
-        # -> check up-to-date and return retrain -> overwrite ori train file is optional
-        # -> pred -> same as retrain (no overwrite) -> take only latest N_LAGS + 1 rows
 
+        # If file exist then see for purposes:
+        # -> train: return ori_data
+        # -> retrain: check if ori_data up-to-date and return new dataset if not -> overwrite ori train file is optional
+        # -> pred: same as retrain (no overwrite) -> take only latest N_LAGS + 1 rows
+        if replace_old_data and purpose!="retrain":
+            print(
+                """
+                    replace_old_data is defaul as FALSE when purpose != "retrain"
+                """
+            )
+        
+        # ==== Retrain step ==== 
         if purpose == 'retrain':
 
             # Check for most updated data - retrain purpose
-            if not self.data_is_updated(data_ori):
+            if self.data_is_updated(data_ori)==False:
                 data_new = self.fetch_stock_price_data()
 
                 # Optional overwrite old original data from train purpose
@@ -60,9 +68,12 @@ class AccessData(LoadData):
                     print(f"Current {self.symbol} data is updated from {latest} to {today}")
                     data_new.to_parquet(self.file_path, index=False)
                 return data_new
+            
+            # If data is already updated -> return ori_data
             else:
                 return data_ori
 
+        # ==== Pred ==== 
         elif purpose == 'pred':
 
             # Check for most updated data - prediction purpose
@@ -73,8 +84,11 @@ class AccessData(LoadData):
                 data_ori = data_ori[-self.candle_nums:]
                 return data_ori
 
+        # ==== Train ====
         return data_ori # return ori data in case purpose = "train"
 
+
+# -------------- TEST CASE -----------
 if __name__ == '__main__':
     CTD = AccessData(symbol='MWG')
     data = CTD.access_data(purpose="pred")
