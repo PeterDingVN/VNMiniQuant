@@ -87,7 +87,7 @@ class AccessData(LoadData):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.file_path = BASE_DIR / "data_cache" / f'{self.symbol}.parquet'
+        self.file_path = BASE_DIR / "stock_price_cache" / f'{self.symbol}.parquet'
 
     # ===== SubFunc: Check if the dataset already exist =====
     def check_path_existence(self) -> Path|None:
@@ -169,7 +169,7 @@ class AccessData(LoadData):
 # ================== TEST CASE =========================
 # =======================================================
 
-# CMD: python -m data.stock_price.data_access
+# CMD: python -m data.stock_price.stock_price_access
 
 if __name__ == '__main__':
     CTD = AccessData(symbol='MWG')
