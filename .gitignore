@@ -2,4 +2,4 @@
 __pycache__/
 *.pyc
 
-test.py
+.0_testing_note/
