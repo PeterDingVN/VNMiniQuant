@@ -172,8 +172,8 @@ class AccessData(LoadData):
 # CMD: python -m data.stock_price.stock_price_access
 
 if __name__ == '__main__':
-    CTD = AccessData(symbol='MWG')
-    data = CTD.access_data(purpose="pred")
+    CTD = AccessData(symbol='AGR')
+    data = CTD.access_data(purpose="train")
     print(data)
     print(len(data))
 
