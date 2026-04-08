@@ -105,9 +105,7 @@ class AccessData(_LoadData):
         return delta == 0 or (delta <= 2 and today.weekday() in (5, 6))
 
     # ===== MAIN FUNC: Access the data accordingly =====
-    def access_data(self, purpose:
-                    str = "train",
-                    replace_old_data: bool = False) -> pd.DataFrame:
+    def access_data(self, purpose: str = "train", replace_old_data: bool = False) -> pd.DataFrame:
 
         # All purposes possible
         if purpose not in ("train", "retrain", "pred"):
