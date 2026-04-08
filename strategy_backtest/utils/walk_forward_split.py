@@ -4,9 +4,10 @@ import warnings
 
 class WalkForwardSplit:
     """
-    Walk-forward splits the raw input data into K different datasets, each has train and test sets
-    Its only usage is to split data.
-    The aim is to provide data for walk forward performance evaluation Financially and Statistically
+    Walk-forward splits the raw input data into K different datasets, each has train and test sets.
+    Its only usage is to split raw big data into K chunks, no internal splitting (train-val split) 
+        for each fold is performed.
+    The aim is to provide data for walk forward performance evaluation Financially and Statistically.
 
 
     Parameters
@@ -19,7 +20,7 @@ class WalkForwardSplit:
 
     Output
     ---------
-    A list of dataframe each nested inside a tuple
+    A list of dataframe.
     """
 
     def __init__(self, test_size=0.2, k_fold=5):
@@ -54,11 +55,7 @@ class WalkForwardSplit:
                 break
 
             window = data.iloc[start:end]
-
-            train_data = window.iloc[:train_len]
-            test_data = window.iloc[train_len:]
-
-            splits.append((train_data, test_data))
+            splits.append(window)
 
             start += step_size  # move forward
 
@@ -95,6 +92,6 @@ if __name__ == '__main__':
     agr = AccessData(symbol='AGR').access_data()
     agr_ls = WalkForwardSplit(k_fold=20, test_size=0.6).split(data=agr)
     print(len(agr_ls))
-    print(type(agr_ls[0][0]))
+    print(type(agr_ls[0]))
 
 # Run cmd: python -m strategy_backtest.utils.walk_forward_split
