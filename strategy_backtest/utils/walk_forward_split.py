@@ -4,7 +4,10 @@ import warnings
 
 class WalkForwardSplit:
     """
-    Walk-forward splitter where EACH fold has its own train/test split.
+    Walk-forward splits the raw input data into K different datasets, each has train and test sets
+    Its only usage is to split data.
+    The aim is to provide data for walk forward performance evaluation Financially and Statistically
+
 
     Parameters
     ----------
