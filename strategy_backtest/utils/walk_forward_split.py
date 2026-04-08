@@ -32,30 +32,28 @@ class WalkForwardSplit:
 
         n = len(data)
 
-        # derive window size from k_fold
-        window_size = n // self.k_fold
-
-        # Train and test size of each window (each fold)
-        test_len = int(window_size * self.test_size)
-        train_len = window_size - test_len
+        # Train and test size of each window (each fold) 
+        # -> only use for validation not a real train-test split
+        train_len = n / (1 + self.k_fold * self.test_size / (1-self.test_size))
+        test_len = train_len * self.test_size / (1-self.test_size)
         self._warn_small_folds(train_len, test_len)
 
+        # derive window size from k_fold
+        window_size = int(train_len + test_len)
+
         # ensure no overlap of test sets, default step-size = test-len instead of >
-        step_size = test_len
-        
+        step_size = int(test_len)
+
 
         splits = []
-
         start = 0
-
         for i in range(self.k_fold):
             end = start + window_size
-
-            if end > n:
-                break
-
-            window = data.iloc[start:end]
-            splits.append(window)
+            if i+1 == self.k_fold:
+                end = n
+                
+            slice_ = data.iloc[start:end]
+            splits.append(slice_)
 
             start += step_size  # move forward
 
@@ -75,11 +73,11 @@ class WalkForwardSplit:
         if self.k_fold <=0:
             raise ValueError("k_fold must be positive")
 
-
     def _warn_small_folds(self, train_len, test_len):
         if test_len + train_len < 500:
             warnings.warn(
-                f"Data total size ({train_len+test_len}) is small with train {train_len} and {test_len} → noisy evaluation",
+                f"Data total size ({int(train_len+test_len)}) is small with train {int(train_len)}" 
+                f"and {int(test_len)} → noisy evaluation",
                 UserWarning
             )
 
@@ -90,8 +88,9 @@ class WalkForwardSplit:
 if __name__ == '__main__':
     from data.stock_price import AccessData
     agr = AccessData(symbol='AGR').access_data()
-    agr_ls = WalkForwardSplit(k_fold=20, test_size=0.6).split(data=agr)
-    print(len(agr_ls))
-    print(type(agr_ls[0]))
+    agr_ls = WalkForwardSplit(k_fold=5, test_size=0.2).split(data=agr)
+    print(agr.tail())
+    print(agr_ls[-1].tail())
+
 
 # Run cmd: python -m strategy_backtest.utils.walk_forward_split
