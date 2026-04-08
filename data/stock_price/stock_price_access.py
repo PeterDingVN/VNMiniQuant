@@ -1,6 +1,6 @@
 from datetime import datetime
 from vnstock import Vnstock
-from config.settings import DATA_SOURCE, START_DATE, INTERVAL, N_LAGS
+from config import DATA_SOURCE, START_DATE, INTERVAL, N_LAGS
 from pathlib import Path
 import pandas as pd
 
@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parents[0]
 # =======================================================
 # ============== Load Data From API source Class ========
 # =======================================================
-class LoadData:
+class _LoadData:
 
     """
         This class is responsible for loading stock price data from API sources. 
@@ -70,7 +70,7 @@ class LoadData:
 # =======================================================
 # ============== Access Loaded Data Class ===============
 # =======================================================
-class AccessData(LoadData):
+class AccessData(_LoadData):
 
     """
         This class is responsible for accessing the fetched stock price data, either for training or prediction purposes.
