@@ -52,7 +52,7 @@ class WalkForwardSplit:
             if i+1 == self.k_fold:
                 end = n
                 
-            slice_ = data.iloc[start:end]
+            slice_ = data.iloc[start:end+1]
             splits.append(slice_)
 
             start += step_size  # move forward
@@ -88,9 +88,10 @@ class WalkForwardSplit:
 if __name__ == '__main__':
     from data.stock_price import AccessData
     agr = AccessData(symbol='AGR').access_data()
-    agr_ls = WalkForwardSplit(k_fold=5, test_size=0.2).split(data=agr)
-    print(agr.tail())
-    print(agr_ls[-1].tail())
+    agr_ls = WalkForwardSplit(k_fold=20, test_size=0.5).split(data=agr)
+
+    print(agr_ls[-3].tail(), len(agr_ls[-2]))
+    print(agr_ls[-2].iloc[-125:, :].head(), len(agr_ls[-1]))
 
 
 # Run cmd: python -m strategy_backtest.utils.walk_forward_split
