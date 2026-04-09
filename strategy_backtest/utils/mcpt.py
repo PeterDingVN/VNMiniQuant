@@ -87,7 +87,7 @@ class MonteCarlosPermutation:
             np.log(df[['open', 'high', 'low', 'close']].values.astype(float))
             for df in ohlcs
         ]
-        volume_data = [df['volume'].values.copy() for df in ohlcs]
+        volume_data = [np.log(df['volume'].values.astype(int)) for df in ohlcs]   ##### Here
 
         # Save the preserved start and end bars
         start_log = np.stack([ld[start_index] for ld in log_ohlc])
@@ -98,12 +98,16 @@ class MonteCarlosPermutation:
         rel_high = np.empty((n_markets, perm_n))
         rel_low = np.empty((n_markets, perm_n))
         rel_close = np.empty((n_markets, perm_n))
+        rel_vol = np.empty((n_markets, perm_n))
 
         for i, logs in enumerate(log_ohlc):
             # Gap (open - prior close)
             rel_open[i, 0] = logs[perm_index, 0] - logs[perm_index - 1, 3]
+            v = volume_data[i]
+            rel_vol[i, 0] = v[perm_index] - v[perm_index - 1]
             for j in range(1, perm_n):
                 rel_open[i, j] = logs[perm_index + j, 0] - logs[perm_index + j - 1, 3]
+                rel_vol[i, j] = v[perm_index + j] - v[perm_index + j - 1]
 
             # Intraday (high/low/close relative to open)
             slice_logs = logs[perm_index:perm_index + perm_n]
@@ -119,11 +123,14 @@ class MonteCarlosPermutation:
         lengths_o, starts_o = MonteCarlosPermutation._get_random_blocks(perm_n)
         perm_order_o = np.random.permutation(len(lengths_o))
 
+        # Generate and shuffle blocks for volume
+        lengths_v, starts_v = MonteCarlosPermutation._get_random_blocks(perm_n)
+        perm_order_v = np.random.permutation(len(lengths_v))
+
         # Apply block permutation to intraday returns
         rel_high_new = np.empty_like(rel_high)
         rel_low_new = np.empty_like(rel_low)
         rel_close_new = np.empty_like(rel_close)
-        vol_new = np.empty((n_markets, perm_n), dtype=volume_data[0].dtype)
 
         pos = 0
         for b in perm_order_hl:
@@ -132,9 +139,8 @@ class MonteCarlosPermutation:
             rel_high_new[:, pos:pos + L] = rel_high[:, seg]
             rel_low_new[:, pos:pos + L] = rel_low[:, seg]
             rel_close_new[:, pos:pos + L] = rel_close[:, seg]
-            for i in range(n_markets):
-                vol_new[i, pos:pos + L] = volume_data[i][perm_index + starts_hl[b]:perm_index + starts_hl[b] + L]
             pos += L
+
 
         # Apply block permutation to gap returns
         rel_open_new = np.empty_like(rel_open)
@@ -145,8 +151,19 @@ class MonteCarlosPermutation:
             rel_open_new[:, pos:pos + L] = rel_open[:, seg]
             pos += L
 
+        # Apply block permutation to volume relative differences
+        rel_vol_new = np.empty_like(rel_vol)
+        pos = 0
+        for b in perm_order_v:
+            L = lengths_v[b]
+            seg = slice(starts_v[b], starts_v[b] + L)
+            rel_vol_new[:, pos:pos + L] = rel_vol[:, seg]
+            pos += L
+
+
         # Reconstruct log-prices from permuted returns (vectorized)
         permuted = []
+
         for i in range(n_markets):
             base_close = start_log[i, 3]
 
@@ -163,29 +180,37 @@ class MonteCarlosPermutation:
 
             # Assemble final log-price matrix
             perm_log = np.empty((n_bars, 4))
-            perm_volume = np.empty(n_bars, dtype=vol_new.dtype)
 
             # Preserve initial segment
             perm_log[:start_index + 1] = log_ohlc[i][:start_index + 1]
-            perm_volume[:start_index + 1] = volume_data[i][:start_index + 1]
 
             # Fill permuted portion
             perm_log[perm_index:perm_index + perm_n, 0] = open_seq
             perm_log[perm_index:perm_index + perm_n, 1] = high_seq
             perm_log[perm_index:perm_index + perm_n, 2] = low_seq
             perm_log[perm_index:perm_index + perm_n, 3] = close_seq
-            perm_volume[perm_index:perm_index + perm_n] = vol_new[i]
 
             # Preserve final bar
             perm_log[-1] = last_log[i]
-            perm_volume[-1] = volume_data[i][-1]
 
             # Exponentiate OHLC and pack into DataFrame
             out = pd.DataFrame(
                 np.exp(perm_log),
                 columns=['open', 'high', 'low', 'close']
             )
-            out['volume'] = perm_volume
+
+            # Mutate volume too
+            vol_full = np.empty(n_bars)
+            vol_full[:start_index + 1] = volume_data[i][:start_index + 1]
+            vol_inc = np.empty(perm_n)
+            vol_inc[:] = rel_vol_new[i]
+            vol_seq = volume_data[i][start_index] + np.cumsum(vol_inc)
+            vol_full[perm_index:perm_index + perm_n] = vol_seq
+
+            # Preserve final bar for vol
+            vol_full[-1] = volume_data[i][-1]
+            out['volume'] = np.exp(vol_full)
+            
 
             # Put datetime back as a column
             out.insert(0, 'time', base_index.to_numpy())
