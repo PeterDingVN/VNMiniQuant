@@ -27,6 +27,8 @@ class MonteCarlosPermutation:
         starts = np.cumsum([0] + lengths[:-1])
         return lengths, starts
     
+    
+    # MAIN FUNC: Generate permutation
     @staticmethod
     def gen_permutation(ohlc: pd.DataFrame | List[pd.DataFrame],
                     start_index: int = 1,
@@ -48,12 +50,12 @@ class MonteCarlosPermutation:
 
         # Verify matching indices
         MonteCarlosPermutation._check_index(ohlcs[0])
-        base_index = ohlcs[0].set_index('time').index
+        base_index = ohlcs[0].reset_index().set_index('time').index
 
         for i, df in enumerate(ohlcs):
             try:
                 MonteCarlosPermutation._check_index(df)
-                df = df.set_index('time')
+                df = df.reset_index().set_index('time')
             except Exception as e:
                 return f'Error {e} is caught at data number {i+1} in the list'
             if not base_index.equals(df.index):
@@ -71,12 +73,8 @@ class MonteCarlosPermutation:
         if n_bars <= start_index + 2:
             return ohlc.copy() if n_markets == 1 else [df.copy() for df in ohlcs]
 
-        # Require volume for the upgraded version
-        for df in ohlcs:
-            if 'volume' not in df.columns:
-                raise ValueError("Input data must contain a 'volume' column.")
 
-        perm_index = start_index + 1
+        perm_index = start_index
         perm_n = n_bars - start_index - 2  # up to last-1
 
         # Seed for reproducibility
@@ -87,7 +85,7 @@ class MonteCarlosPermutation:
             np.log(df[['open', 'high', 'low', 'close']].values.astype(float))
             for df in ohlcs
         ]
-        volume_data = [np.log(df['volume'].values.astype(int)) for df in ohlcs]   ##### Here
+        volume_data = [np.log(df['volume'].values.astype(int)) for df in ohlcs]
 
         # Save the preserved start and end bars
         start_log = np.stack([ld[start_index] for ld in log_ohlc])
@@ -98,16 +96,17 @@ class MonteCarlosPermutation:
         rel_high = np.empty((n_markets, perm_n))
         rel_low = np.empty((n_markets, perm_n))
         rel_close = np.empty((n_markets, perm_n))
-        rel_vol = np.empty((n_markets, perm_n))
+
+        rel_vol = np.empty((n_markets, perm_n))   # ----------------------------- VOlume -------------------------------------
 
         for i, logs in enumerate(log_ohlc):
-            # Gap (open - prior close)
+            # Gap: open_t = real_open_t - real_close_t-1
             rel_open[i, 0] = logs[perm_index, 0] - logs[perm_index - 1, 3]
-            v = volume_data[i]
-            rel_vol[i, 0] = v[perm_index] - v[perm_index - 1]
+            v = volume_data[i]  # ------------------------------------------------- Volume -----------------------------------
+            rel_vol[i, 0] = v[perm_index] - v[perm_index - 1] # -------------------- Volume -----------------------------------
             for j in range(1, perm_n):
                 rel_open[i, j] = logs[perm_index + j, 0] - logs[perm_index + j - 1, 3]
-                rel_vol[i, j] = v[perm_index + j] - v[perm_index + j - 1]
+                rel_vol[i, j] = v[perm_index + j] - v[perm_index + j - 1]  # -------------------- Volume ----------------------
 
             # Intraday (high/low/close relative to open)
             slice_logs = logs[perm_index:perm_index + perm_n]
