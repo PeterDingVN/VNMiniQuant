@@ -56,10 +56,15 @@ class _LoadData:
                     else:
                         print(f"Successfully loaded data for prediction: {self.symbol} from {src}")
                         data_ = stock_.quote.history(count_back=self.candle_nums, interval=self.interval)
+
+                        # countback looks for no of days (including days off) 
+                        # BUT WE NEED exact no of candles not days
+                        # the if func helps bridge the difference in definitions/
                         if len(data_) != self.candle_nums:
                             dif = self.candle_nums - len(data_)
                             data_ = stock_.quote.history(count_back=self.candle_nums+dif, interval=self.interval)
                             data_ = data_[-self.candle_nums:]
+                            
                     return data_
 
             except ValueError or ModuleNotFoundError:
