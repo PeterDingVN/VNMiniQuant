@@ -86,7 +86,7 @@ class WalkForwardSplit:
 #       TEST CASE
 # ----------------------
 if __name__ == '__main__':
-    from data.stock_price import AccessData
+    from data_api.stock_price import AccessData
     agr = AccessData(symbol='AGR').access_data()
     agr_ls = WalkForwardSplit(k_fold=20, test_size=0.5).split(data=agr)
 

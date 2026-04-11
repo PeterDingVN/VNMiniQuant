@@ -206,7 +206,7 @@ class MonteCarlosPermutation:
 
 if __name__ == '__main__':
 
-    from data.stock_price import AccessData
+    from data_api.stock_price import AccessData
     agr = AccessData(symbol='AGR').access_data()
     print(agr.describe())
 
