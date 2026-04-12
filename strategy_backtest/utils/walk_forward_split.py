@@ -1,4 +1,3 @@
-import numpy as np
 import warnings
 
 
@@ -12,38 +11,46 @@ class WalkForwardSplit:
 
     Parameters
     ----------
-    test_size : float (default=0.2)
+    test_size : float
         Fraction of each fold used as test
 
     k_fold : int
         Number of folds
+
+    gap: int
+        Number of interval periods omitted between each k fold to prevent data leakage
 
     Output
     ---------
     A list of dataframe.
     """
 
-    def __init__(self, test_size=0.2, k_fold=5):
+    def __init__(self, test_size:float=0.2, 
+                        gap: int= 0, 
+                        k_fold:int=5):
+        
+        # Input arg -> any unmentioned params will fall back to default above
         self.test_size = test_size
-        self.k_fold = int(k_fold)
+        self.gap = gap
+        self.k_fold = k_fold
+
 
     def split(self, data):
-        self._validate_inputs(data)
+        self._validate_raw_inputs(data)
 
         n = len(data)
 
         # Train and test size of each window (each fold) 
         # -> only use for validation not a real train-test split
-        train_len = n / (1 + self.k_fold * self.test_size / (1-self.test_size))
+        train_len = (n - self.gap) / (1 + self.k_fold * self.test_size / (1-self.test_size))
         test_len = train_len * self.test_size / (1-self.test_size)
         self._warn_small_folds(train_len, test_len)
 
         # derive window size from k_fold
-        window_size = int(train_len + test_len)
+        window_size = int(train_len + test_len) + self.gap
 
         # ensure no overlap of test sets, default step-size = test-len instead of >
         step_size = int(test_len)
-
 
         splits = []
         start = 0
@@ -63,15 +70,19 @@ class WalkForwardSplit:
     # Validation logic
     # -------------------------
 
-    def _validate_inputs(self, data):
+    def _validate_raw_inputs(self, data):
         if data is None or len(data) == 0:
             raise ValueError("Data must be non-empty")
 
         if not (0 < self.test_size < 1):
             raise ValueError("test_size must be between 0 and 1")
 
-        if self.k_fold <=0:
-            raise ValueError("k_fold must be positive")
+        if not isinstance(self.k_fold, int) and self.k_fold <=0:
+            raise ValueError("k_fold must be positive integer")
+        
+        if not isinstance(self.gap, int) and self.gap < 0:
+            raise ValueError("gap must be integer and be at least 0") 
+
 
     def _warn_small_folds(self, train_len, test_len):
         if test_len + train_len < 500:
@@ -88,10 +99,10 @@ class WalkForwardSplit:
 if __name__ == '__main__':
     from data_api.stock_price import AccessData
     agr = AccessData(symbol='AGR').access_data()
-    agr_ls = WalkForwardSplit(k_fold=20, test_size=0.5).split(data=agr)
+    agr_ls = WalkForwardSplit(k_fold=3, test_size=0.5).split(data=agr)
 
-    print(agr_ls[-3].tail(), len(agr_ls[-2]))
-    print(agr_ls[-2].iloc[-125:, :].head(), len(agr_ls[-1]))
+    print(agr_ls[-3].tail(), len(agr_ls[-3]))
+    print(agr_ls[-2].iloc[-659:, :].head(), len(agr_ls[-2]))
 
 
 # Run cmd: python -m strategy_backtest.utils.walk_forward_split
