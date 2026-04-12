@@ -9,8 +9,12 @@ DATA_SOURCE = ["KBS", "VCI", "FMP", "TCBS"]
 START_DATE = '2015-01-01'
 INTERVAL = '1d'
 
+# Portfolio (example)
+PORTFOLIO = ['CTD', 'AGR', 'PDR', 'NHA', 'DIG']
+
 # Number of lookback periods
 N_LAGS = 11
+
 
 # Finance Performance Test config
 RISK_FREE_RATE = 0.64 # ---> US Treasury Bond Rate
