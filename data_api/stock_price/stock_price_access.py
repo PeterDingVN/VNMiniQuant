@@ -179,10 +179,11 @@ class AccessData(_LoadData):
 # CMD: python -m data_api.stock_price.stock_price_access
 
 if __name__ == '__main__':
-    CTD = AccessData(symbol='AGR')
-    data = CTD.access_data(purpose="train")
-    print(data)
-    print(len(data))
+    all_symbols = ['FTS', 'CTS']
+    for ticker in all_symbols:
+        data = AccessData(symbol=ticker).access_data(purpose="train")
+        print(data)
+        print(len(data))
 
 
 
