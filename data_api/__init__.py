@@ -1,4 +1,4 @@
-from .news import *
+from .index import *
 from .stock_price import *
 
 __all__ = ['AccessData']
