@@ -1,8 +1,11 @@
 from datetime import datetime
-from vnstock import Vnstock
-from config import DATA_SOURCE, START_DATE, INTERVAL, N_LAGS, PROJECT_ROOT
-import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import pandas as pd
+from vnstock import Vnstock
+
+from config import DATA_SOURCE, START_DATE, INTERVAL, N_LAGS, PROJECT_ROOT, PORTFOLIO
 
 
 
@@ -10,7 +13,7 @@ from pathlib import Path
 # ============== Load Data From API source Class ========
 # =======================================================
 
-class _LoadData:
+class _FetchData:
 
     """
         This class is responsible for loading stock price data from API sources. 
@@ -27,43 +30,41 @@ class _LoadData:
     """
 
     def __init__(self,
-        symbol: str = 'VCI',
-        start: str = START_DATE,
-        interval: str = INTERVAL,
-        count_back: int = N_LAGS+1
-                 ):
+                 source: list[str] = DATA_SOURCE):
+        self.source = source
 
-        self.symbol = symbol
-        self.interval = interval
-        self.start = start
-        self.candle_nums = count_back
 
     # Load data for training
-    def _fetch_stock_price_data(self, for_train: bool = True):
+    def fetch_stock_price_data(self, symbol: str, 
+                                      interval: str, 
+                                      start: str, 
+                                      source: list[str],
+                                      countback: int=None, 
+                                      for_train: bool = True):
 
         # Loop thru sources
-        for src in DATA_SOURCE:
+        for src in source:
             try:
-                stock_ = Vnstock().stock(symbol=self.symbol, source=src)
+                stock_ = Vnstock().stock(symbol=symbol, source=src)
                 if stock_:
 
                     # Training data -> take everyhthing back till 2015
                     if for_train:
-                        print(f"Successfully loaded data for training: {self.symbol} from {src}")
-                        data_ = stock_.quote.history(start=self.start, interval=self.interval)
+                        print(f"Successfully loaded data for training: {symbol} from {src}")
+                        data_ = stock_.quote.history(start=start, interval=interval)
 
                     # For pred, take up to N_LAGS + 1 latest data
                     else:
-                        print(f"Successfully loaded data for prediction: {self.symbol} from {src}")
-                        data_ = stock_.quote.history(count_back=self.candle_nums, interval=self.interval)
+                        print(f"Successfully loaded data for prediction: {symbol} from {src}")
+                        data_ = stock_.quote.history(count_back=countback, interval=interval)
 
                         # countback looks for no of days (including days off) 
                         # BUT WE NEED exact no of candles not days
                         # the if func helps bridge the difference in definitions/
-                        if len(data_) != self.candle_nums:
-                            dif = self.candle_nums - len(data_)
-                            data_ = stock_.quote.history(count_back=self.candle_nums+dif, interval=self.interval)
-                            data_ = data_[-self.candle_nums:]
+                        if len(data_) != countback:
+                            dif = countback - len(data_)
+                            data_ = stock_.quote.history(count_back=countback+dif, interval=interval)
+                            data_ = data_[-countback:]
                             
                     return data_
 
@@ -75,7 +76,7 @@ class _LoadData:
 # =======================================================
 # ============== Access Loaded Data Class ===============
 # =======================================================
-class AccessData(_LoadData):
+class AccessSingleData(_FetchData):
 
     """
         This class is responsible for accessing the fetched stock price data, either for training or prediction purposes.
@@ -90,9 +91,22 @@ class AccessData(_LoadData):
     """ 
 
 
-    def __init__(self, **kwargs):
+    def __init__(self,
+                 symbol: str,
+                 cache_root: str = PROJECT_ROOT,  # Not recommend changing this
+                 start: str = START_DATE,
+                 interval: str = INTERVAL,
+                 countback: int = N_LAGS+1,  
+                 **kwargs):
+        
         super().__init__(**kwargs)
-        self.folder_path = PROJECT_ROOT/ "cached_data" / "stock_price_cache"
+        
+        self.symbol = symbol
+        self.start = start
+        self.interval = interval
+        self.candle_nums = countback
+        self.folder_path = cache_root/ "cached_data" / "stock_price_cache"
+
         if not self.folder_path.exists():
             self.folder_path.mkdir(parents=True, exist_ok=True) 
 
@@ -114,7 +128,7 @@ class AccessData(_LoadData):
         return delta == 0 or (delta <= 2 and today.weekday() in (5, 6))
 
     # ===== MAIN FUNC: Access the data accordingly =====
-    def access_data(self, purpose: str = "train", replace_old_data: bool = False) -> pd.DataFrame:
+    def access_one_data(self, purpose: str = "train", replace_old_data: bool = False) -> pd.DataFrame:
 
         # All purposes possible
         if purpose not in ("train", "retrain", "pred"):
@@ -123,7 +137,8 @@ class AccessData(_LoadData):
         # Check for parquet file -> if not -> fetch data and create the data file
         is_path = self._check_path_existence()
         if not is_path:
-            data_ = self._fetch_stock_price_data()
+            data_ = self.fetch_stock_price_data(source=self.source, symbol=self.symbol, 
+                                                 interval=self.interval, start=self.start)
             data_.to_parquet(self.file_path, index=False)
         data_ori = pd.read_parquet(self.file_path)
 
@@ -144,7 +159,8 @@ class AccessData(_LoadData):
 
             # Check for most updated data - retrain purpose
             if self._data_is_updated(data_ori)==False:
-                data_new = self._fetch_stock_price_data()
+                data_new = self.fetch_stock_price_data(source=self.source, symbol=self.symbol, 
+                                                        interval=self.interval, start=self.start)
 
                 # Optional overwrite old original data from train purpose
                 if replace_old_data:
@@ -163,7 +179,9 @@ class AccessData(_LoadData):
 
             # Check for most updated data - prediction purpose
             if not self._data_is_updated(data_ori):
-                data_pred_new = self._fetch_stock_price_data(for_train=False)
+                data_pred_new = self.fetch_stock_price_data(source=self.source, symbol=self.symbol, 
+                                                             interval=self.interval, start=self.start,
+                                                             countback=self.candle_nums, for_train=False)
                 return data_pred_new
             else:
                 data_ori = data_ori[-self.candle_nums:]
@@ -172,6 +190,61 @@ class AccessData(_LoadData):
         # ==== Train ====
         return data_ori # return ori data in case purpose = "train"
 
+
+class AccessData:
+
+    def __init__(self, symbol: list[str],
+                       cache_root: str = PROJECT_ROOT,  # Not recommend changing this
+                       start: str = START_DATE,
+                       interval: str = INTERVAL,
+                       countback: int = N_LAGS+1):
+        self.symbols = symbol
+        self.cache_root = cache_root
+        self.start = start
+        self.interval = interval
+        self.countback = countback
+        
+    def _make_single_accessor(self, symbol: str) -> AccessSingleData:
+        return AccessSingleData(
+            symbol = symbol,
+            cache_root=self.cache_root,
+            start=self.start,
+            interval=self.interval,
+            countback=self.countback
+        )
+        
+    def access_data(self, 
+                    maxthread: int=4,
+                    purpose: str = "train", 
+                    replace_old_data: bool = False) -> list[dict]:
+        
+        if (not isinstance(maxthread, int)) or (not (1 <= maxthread <= 5)):
+            raise ValueError('maxthread must be integer, min 1 and max 5')
+
+        results, errors = [], []
+
+        with ThreadPoolExecutor(max_workers=maxthread) as executor:
+            futures = {
+                executor.submit(
+                    self._make_single_accessor(sym).access_one_data,
+                    purpose,
+                    replace_old_data,
+                ): sym
+                for sym in self.symbols
+            }
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    results.append({"symbol": sym, "data": future.result()})
+                except Exception as e:
+                    errors.append({"symbol": sym, "error": str(e)})
+                    print(f"[ERROR] {sym}: {e}")
+
+        if errors:
+            print(f"\n{len(errors)}/{len(self.symbols)} symbol(s) failed.")
+        return results
+        
+
 # =======================================================
 # ================== TEST CASE =========================
 # =======================================================
@@ -179,11 +252,14 @@ class AccessData(_LoadData):
 # CMD: python -m data_api.stock_price.stock_price_access
 
 if __name__ == '__main__':
-    all_symbols = ['FTS', 'CTS']
-    for ticker in all_symbols:
-        data = AccessData(symbol=ticker).access_data(purpose="train")
-        print(data)
-        print(len(data))
+    import time
+    time_s = time.perf_counter()
+
+    all_symbols = PORTFOLIO
+    portfo = AccessData(all_symbols).access_data(purpose='pred')
+    print(len(portfo[0]['data']))
+    
+    print(time.perf_counter()-time_s)
 
 
 
