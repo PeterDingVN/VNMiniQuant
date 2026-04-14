@@ -23,10 +23,8 @@ class _FetchData:
         Output: Dataframe with stock price data
 
         Params:
-        - symbol: Stock name (default: 'VCI')
-        - start: Earliest date for data (default: START_DATE from config)
-        - interval: Interval for stock data (min, day, hr) (default: INTERVAL from config)
-        - count_back: Number of candles to fetch (default: N_LAGS + 1 from config)
+        - source: source where to call API
+        
     """
 
     def __init__(self,
@@ -85,8 +83,14 @@ class AccessSingleData(_FetchData):
         Output: Dataframe with stock price data for the specified purpose (train, retrain, pred)
 
         Params:
-            - all params from LoadData class
-            - purpose: The purpose for accessing data (train, retrain, pred)
+            - symbol: Stock name (default: 'VCI')
+            - cache_root: where to store data -> not recommend changing this dir for stability
+            - start: Earliest date for data (default: START_DATE from config)
+            - interval: Interval for stock data (min, day, hr) (default: INTERVAL from config)
+            - count_back: Number of candles to fetch (default: N_LAGS + 1 from config)
+
+            - purpose (from def access_one_data): receive train, retrain, pred -> return different data length with different
+            API calling method
 
     """ 
 
@@ -193,6 +197,23 @@ class AccessSingleData(_FetchData):
 
 class AccessData:
 
+    """
+        The class uses Threading to avoid blockage (response wait time, file reads time, ...), enhanching
+        speed of code
+
+        Params: 
+        --------
+        - symbol: receive a LIST of symbols for scraping
+        - All from AccessSingleData
+
+        - maxthread (from def access_data): determine how many requests to fire per time
+
+        Output:
+        --------
+        List of dict, each dict has format: {symbol: name_of_ticker; data: pd.DataFrame}
+
+    """
+
     def __init__(self, symbol: list[str],
                        cache_root: str = PROJECT_ROOT,  # Not recommend changing this
                        start: str = START_DATE,
@@ -258,7 +279,7 @@ if __name__ == '__main__':
     all_symbols = PORTFOLIO
     portfo = AccessData(all_symbols).access_data(purpose='pred')
     print(len(portfo[0]['data']))
-    
+
     print(time.perf_counter()-time_s)
 
 
