@@ -68,7 +68,7 @@ class _FetchData:
 
             except ValueError or ModuleNotFoundError:
                 continue
-        return "No data source available. Retry later."
+        raise RuntimeError("No data source available. Retry later.")
     
 
 # =======================================================
@@ -219,7 +219,14 @@ class AccessData:
                        start: str = START_DATE,
                        interval: str = INTERVAL,
                        countback: int = N_LAGS+1):
-        self.symbols = symbol
+        
+        if isinstance(symbol, str):
+            self.symbols = [symbol]
+        elif isinstance(symbol, list):
+            self.symbols = symbol
+        else:
+            raise ValueError('symbol must be a list of ticker or a ticker')
+        
         self.cache_root = cache_root
         self.start = start
         self.interval = interval
@@ -253,13 +260,16 @@ class AccessData:
                 ): sym
                 for sym in self.symbols
             }
+
             for future in as_completed(futures):
+
                 sym = futures[future]
+
                 try:
                     results.append({"symbol": sym, "data": future.result()})
                 except Exception as e:
                     errors.append({"symbol": sym, "error": str(e)})
-                    print(f"[ERROR] {sym}: {e}")
+                    print(f"[ERROR] {sym}: {type(e).__name__} - {e}")
 
         if errors:
             print(f"\n{len(errors)}/{len(self.symbols)} symbol(s) failed.")
