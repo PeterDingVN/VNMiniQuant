@@ -5,7 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Data
 ## Data Source Params
-DATA_SOURCE = ["KBS", "VCI", "FMP", "TCBS"]
+DATA_SOURCE = ["KBS", "VCI", "TCBS"]
 START_DATE = '2015-01-01'
 INTERVAL = '1d'
 
