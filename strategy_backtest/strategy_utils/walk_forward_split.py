@@ -97,12 +97,12 @@ class WalkForwardSplit:
 #       TEST CASE
 # ----------------------
 if __name__ == '__main__':
-    from data_api.stock_price import AccessData
-    agr = AccessData(symbol='AGR').access_data()
+    from data import AccessData
+    agr = AccessData(symbol='AGR').access_data()[0]['data']
     agr_ls = WalkForwardSplit(k_fold=3, test_size=0.5).split(data=agr)
 
     print(agr_ls[-3].tail(), len(agr_ls[-3]))
     print(agr_ls[-2].iloc[-659:, :].head(), len(agr_ls[-2]))
 
 
-# Run cmd: python -m strategy_backtest.utils.walk_forward_split
+# Run cmd: python -m strategy_backtest.strategy_utils.walk_forward_split

@@ -206,8 +206,8 @@ class MonteCarlosPermutation:
 
 if __name__ == '__main__':
 
-    from data_api.stock_price import AccessData
-    agr = AccessData(symbol='AGR').access_data()
+    from data import AccessData
+    agr = AccessData(symbol='AGR').access_data()[0]['data']
     print(agr.describe())
 
     print('='*50, 'PERM DES','='*50)
@@ -217,5 +217,5 @@ if __name__ == '__main__':
         print(new_agr.describe())
 
 
-# Run cmd: python -m strategy_backtest.utils.mcpt
+# Run cmd: python -m strategy_backtest.strategy_utils.mcpt
 
