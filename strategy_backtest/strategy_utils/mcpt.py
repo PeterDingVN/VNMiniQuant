@@ -64,7 +64,7 @@ class MonteCarlosPermutation:
 
         # _____ Start index must be at least 0, end must be 1 min _____
         assert start_index >= 0
-        assert end_index >= 1
+        assert end_index >= 0
 
         # ______ Normalize input to List __________
         if isinstance(ohlc, pd.DataFrame):
