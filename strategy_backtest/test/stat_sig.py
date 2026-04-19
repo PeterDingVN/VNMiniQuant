@@ -20,7 +20,7 @@ class StatTest:
         all_better_case = np.sum(mcpt_perf >= finance_perf)
 
         # compute p_value to test if the strat is significant
-        quasi_p = (all_better_case + 1) / (len(mcpt_perf) + 1)
+        quasi_p = (all_better_case+1) / (len(mcpt_perf)+1)
 
         if verbose:
             return f"Quasi P value for the Strategy: {quasi_p}"

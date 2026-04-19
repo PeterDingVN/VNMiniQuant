@@ -13,7 +13,7 @@ class FinanceTest:
     @staticmethod
     def is_array(input_):
         if isinstance(input_, pd.Series):
-            return input.to_numpy()  # already 1D
+            return input_.to_numpy()  # already 1D
         input_ = np.asarray(input_)       # handles list, tuple, ndarray, etc.
 
         return input_.ravel()   
@@ -58,7 +58,7 @@ class FinanceTest:
         returns = FinanceTest.is_array(ret)
         
         # Sharpe calculation
-        excess_returns = returns - risk_free_rate / freq
+        excess_returns = returns[~np.isnan(returns)] - risk_free_rate / freq
         std = np.std(excess_returns)
         if std == 0:
             return np.inf
