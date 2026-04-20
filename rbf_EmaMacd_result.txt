@@ -1,0 +1,29 @@
+STOCK: CTS
+4
+Buy Hold Strat 201.527 %
+Strat EMA MACD 262.242 %
+0.004
+80
+Buy Hold Strat 243.713 %
+Strat EMA MACD 275.485 %
+0.08
+113
+Buy Hold Strat 251.899 %
+Strat EMA MACD 266.980 %
+0.113
+-----------------------------
+
+STOCK: DIG
+12
+Buy Hold Strat 245.116 %
+Strat EMA MACD 299.553 %
+0.012
+8
+Buy Hold Strat 280.269 %
+Strat EMA MACD 562.240 %
+0.008
+47
+Buy Hold Strat -1.954 %
+Strat EMA MACD 166.262 %
+0.047
+-----------------------------
