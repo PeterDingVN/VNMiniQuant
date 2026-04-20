@@ -1,4 +1,4 @@
-import numpy as np
+from config import NUM_OF_PERM
 
 class StatTest:
 
@@ -14,16 +14,13 @@ class StatTest:
     """
     
     @staticmethod
-    def quasi_pvalue(finance_perf: float, mcpt_perf: list, verbose: bool = True):
+    def quasi_pvalue(mcpt_better: list | int, all_trials: int=NUM_OF_PERM):
 
-        mcpt_perf = np.asarray(mcpt_perf)
-        all_better_case = np.sum(mcpt_perf >= finance_perf)
-
-        # compute p_value to test if the strat is significant
-        quasi_p = (all_better_case+1) / (len(mcpt_perf)+1)
-
-        if verbose:
-            return f"Quasi P value for the Strategy: {quasi_p}"
-
+        if isinstance(mcpt_better, list):
+            betterperf = len(mcpt_better)
         else:
-            return quasi_p
+            betterperf = mcpt_better
+
+        quasi_p = betterperf / all_trials
+
+        return quasi_p
