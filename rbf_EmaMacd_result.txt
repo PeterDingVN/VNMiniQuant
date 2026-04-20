@@ -27,3 +27,62 @@ Buy Hold Strat -1.954 %
 Strat EMA MACD 166.262 %
 0.047
 -----------------------------
+STOCK: AGR
+112
+Buy Hold Strat 104.802 %
+Strat EMA MACD 156.236 %
+0.112
+23
+Buy Hold Strat 290.801 %
+Strat EMA MACD 338.153 %
+0.023
+361
+Buy Hold Strat 105.517 %
+Strat EMA MACD 34.104 %
+0.361
+-----------------------------
+ 
+STOCK: NHA
+21
+Buy Hold Strat 729.282 %
+Strat EMA MACD 323.490 %
+0.021
+41
+Buy Hold Strat 514.855 %
+Strat EMA MACD 810.976 %
+0.041
+94
+Buy Hold Strat -4.878 %
+Strat EMA MACD 96.575 %
+0.094
+-----------------------------
+
+STOCK: PDR
+57
+Buy Hold Strat 641.570 %
+Strat EMA MACD 423.686 %
+0.057
+1
+Buy Hold Strat 76.128 %
+Strat EMA MACD 389.165 %
+0.001
+38
+Buy Hold Strat -35.711 %
+Strat EMA MACD 95.981 %
+0.038
+-----------------------------
+
+STOCK: CTD
+542
+Buy Hold Strat -24.868 %
+Strat EMA MACD -9.095 %
+0.542
+505
+Buy Hold Strat -48.587 %
+Strat EMA MACD -7.627 %
+0.505
+400
+Buy Hold Strat 64.798 %
+Strat EMA MACD 39.077 %
+0.4
+-----------------------------
