@@ -52,7 +52,8 @@ def generate_signals(df, start_sig: int=1):
     # Output cols: Return Computations
     # ---------------------------------------------------------
     df['log_return'] = np.log(df['close'] / df['close'].shift(1)) # -> log return at each bar
-    df['real_return'] = df['log_return'] * abs(df['final_signal'])  # -> real return = log * signal
+    df['real_return'] = df['log_return'] * abs(df['final_signal'].shift(1))  # -> real return = log * signal_yesterday
+                                                                            # -> avoid lookahead bias
     df['strat_ret'] = np.cumsum(df['real_return'])  # -> total return from real signal
     
     
