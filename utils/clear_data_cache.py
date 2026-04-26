@@ -40,3 +40,5 @@ def clear_folder(data_cat: str):
 if __name__ == '__main__':
     data_cat = 'stock'
     clear_folder(data_cat)
+
+# CMD: python -m utils.clear_data_cache
