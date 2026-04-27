@@ -1,5 +1,54 @@
 import warnings
 
+class TrainTestSplit:
+    """
+        Simple time-series train/test split with optional lookahead trimming.
+    
+        Params:
+        -------
+        test-size: the size of OOS test set used at the very end of optimization/training/fitting process
+        has_lookahead: used in case target var used future data to generate signal, useful to completely detach
+                       train from test set (no relationship -> less bias)
+        lookahead: only usable if has_lookahead=True, setting the number of bars to be dropped as gap/interval btw
+                   train and test sets.
+
+        Output:
+        -------
+        IS and OOS sets  OR
+        Train and Test sets 
+    
+    """
+
+    def __init__(self,
+                test_size: float,
+                has_lookahead: bool = False,
+                lookahead: int = 0):
+
+        assert (0 < test_size < 1)
+        assert lookahead >= 0
+
+        self.test_size = test_size
+        self.has_lookahead = has_lookahead
+        self.lookahead = lookahead if has_lookahead else 0
+
+    def split(self, data):
+
+        n = len(data)
+        if n == 0:
+            raise ValueError("Data is empty.")
+
+        test_start = int(n * (1 - self.test_size))
+        train_end = test_start - self.lookahead
+        if train_end <= 0:
+            raise ValueError(
+                "Training set becomes empty after lookahead trimming."
+            )
+        
+        train = data.iloc[:train_end]
+        test = data.iloc[test_start:]
+        return train, test
+
+
 
 class WalkForwardSplit:
     """

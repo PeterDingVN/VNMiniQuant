@@ -1,2 +1,2 @@
 from .mcpt import *
-from .walk_forward_split import *
+from .data_split import *
