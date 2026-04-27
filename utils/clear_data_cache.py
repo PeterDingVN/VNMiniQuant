@@ -12,7 +12,7 @@ def clear_folder(data_cat: str):
         raise ValueError('data_cat argument only accept stock, index, news')
 
     # Determine folder path
-    folder_path = PROJECT_ROOT / "cached_data" / all_types[data_cat]
+    folder_path = PROJECT_ROOT / "data"/ "cached_data" / all_types[data_cat]
 
     # Check for path existence
     if not os.path.exists(folder_path):
