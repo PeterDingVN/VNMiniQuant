@@ -1,4 +1,4 @@
-from config import NUM_OF_PERM
+from config import SysConfig
 
 class StatTest:
 
@@ -14,7 +14,7 @@ class StatTest:
     """
     
     @staticmethod
-    def quasi_pvalue(mcpt_better: list | int, all_trials: int=NUM_OF_PERM):
+    def quasi_pvalue(mcpt_better: list | int, all_trials: int=SysConfig.n_perm):
 
         if isinstance(mcpt_better, list):
             betterperf = len(mcpt_better)
