@@ -48,12 +48,10 @@ class _FetchData:
 
                     # Training data -> take everyhthing back till 2015
                     if for_train:
-                        print(f"Successfully loaded data for training: {symbol} from {src}")
                         data_ = stock_.quote.history(start=start, interval=interval)
 
                     # For pred, take up to N_LAGS + 1 latest data
                     else:
-                        print(f"Successfully loaded data for prediction: {symbol} from {src}")
                         data_ = stock_.quote.history(count_back=countback, interval=interval)
 
                         # countback looks for no of days (including days off) 
@@ -63,7 +61,8 @@ class _FetchData:
                             dif = countback - len(data_)
                             data_ = stock_.quote.history(count_back=countback+dif, interval=interval)
                             data_ = data_[-countback:]
-                            
+
+                    print(f"Successfully scraping full data for: {symbol} from {src}")
                     return data_
 
             except ValueError or ModuleNotFoundError:
@@ -109,7 +108,7 @@ class AccessSingleData(_FetchData):
         self.start = start
         self.interval = interval
         self.candle_nums = countback
-        self.folder_path = cache_root/ "cached_data" / "stock_price_cache"
+        self.folder_path = cache_root/ "data"/ "cached_data" / "stock_price_cache"
 
         if not self.folder_path.exists():
             self.folder_path.mkdir(parents=True, exist_ok=True) 
@@ -172,10 +171,12 @@ class AccessSingleData(_FetchData):
                     today = datetime.now().date()
                     print(f"Current {self.symbol} data is updated from {latest} to {today}")
                     data_new.to_parquet(self.file_path, index=False)
+                print(f"Retraining Data up-to-date for {self.symbol} is ready!")
                 return data_new
             
             # If data is already updated -> return ori_data
             else:
+                print(f"Retraining Data up-to-date for {self.symbol} is ready!")
                 return data_ori
 
         # ==== Pred ==== 
@@ -186,12 +187,15 @@ class AccessSingleData(_FetchData):
                 data_pred_new = self.fetch_stock_price_data(source=self.source, symbol=self.symbol, 
                                                              interval=self.interval, start=self.start,
                                                              countback=self.candle_nums, for_train=False)
+                print(f"Prediction Data up-to-date for {self.symbol} is ready!")
                 return data_pred_new
             else:
                 data_ori = data_ori[-self.candle_nums:]
+                print(f"Prediction Data up-to-date for {self.symbol} is ready!")
                 return data_ori
 
         # ==== Train ====
+        print(f"Training Data up-to-date for {self.symbol} is ready!")
         return data_ori # return ori data in case purpose = "train"
 
 
@@ -280,7 +284,7 @@ class AccessData:
 # ================== TEST CASE =========================
 # =======================================================
 
-# CMD: python -m data_api.stock_price.stock_price_access
+# CMD: python -m data.data_api.stock_price.stock_price_access
 
 if __name__ == '__main__':
     import time
