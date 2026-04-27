@@ -31,11 +31,21 @@ class FinanceTest:
         return wrapper
 
         
+    # ---------------------------------
+    #        HELPER
+    #----------------------------------
+    def _equity_curve_raw(ret: np.ndarray) -> np.ndarray:
+
+        # Calculate raw return at each date since the first day
+        returns = FinanceTest.is_array(ret)
+        return np.exp(np.cumsum(returns))
+    
+
     # ----------------------------------
     # This is metric used for MCPT TEST
     # -----------------------------------
     @ staticmethod
-    def profit_factor(ret: pd.Series|np.ndarray):
+    def profit_factor(ret: pd.Series|np.ndarray) -> float:
         
         # ensure shape of input
         returns = FinanceTest.is_array(ret)
@@ -52,40 +62,104 @@ class FinanceTest:
     # -----------------------
     # Additional metrics
     # ------------------------
+
+    # NORMAL RETURN
     @staticmethod
-    def sharpe_ratio(ret, risk_free_rate: float = RISK_FREE_RATE, freq: int = TRADE_PERIOD):
-         # ensure shape of input
+    @input_warning
+    def total_return(ret) -> float:
         returns = FinanceTest.is_array(ret)
+
+        returns = returns[~np.isnan(returns)]
+        return float(np.exp(np.sum(returns)) - 1)
+    
+    @staticmethod
+    @input_warning
+    def annualized_return(ret, freq: int = TRADE_PERIOD) -> float:
+        returns = FinanceTest.is_array(ret)
+
+        returns = returns[~np.isnan(returns)]
+        return float(np.exp(freq * np.mean(returns)) - 1)
+
+
+    # VOLATILITY
+    @staticmethod
+    @input_warning
+    def annualized_volatility(ret, freq: int = TRADE_PERIOD) -> float:
+        returns = FinanceTest.is_array(ret)
+
+        returns = returns[~np.isnan(returns)]
+        return float(np.std(returns) * np.sqrt(freq))
+
+    @staticmethod
+    @input_warning
+    def max_drawdown(ret) -> float:
+
+        returns = FinanceTest.is_array(ret)
+        returns = returns[~np.isnan(returns)]
+
+        equity   = FinanceTest._equity_curve_raw(returns)
+        peak     = np.maximum.accumulate(equity)
+        drawdown = (equity - peak) / peak
+        return float(drawdown.min())
+
+    
+    # RISK ADJUSTED RETURN
+    @staticmethod
+    @input_warning
+    def sharpe_ratio(ret, risk_free_rate: float = RISK_FREE_RATE,
+                     freq: int = TRADE_PERIOD) -> float:
         
-        # Sharpe calculation
+        returns        = FinanceTest.is_array(ret)
         excess_returns = returns[~np.isnan(returns)] - risk_free_rate / freq
+
         std = np.std(excess_returns)
         if std == 0:
             return np.inf
-        return np.sqrt(freq) * np.mean(excess_returns) / std
-    
+        return float(np.sqrt(freq) * np.mean(excess_returns) / std)
 
-
-    @ staticmethod
+    @staticmethod
     @input_warning
-    def _compute_equity_curve(ret):
-        pass
+    def sortino_ratio(ret, risk_free_rate: float = RISK_FREE_RATE,
+                      freq: int = TRADE_PERIOD) -> float:
 
-    @staticmethod
-    def total_return():
-        pass
-
-    @staticmethod
-    def max_drawdown():
-        pass
-
-    @staticmethod
-    def winrate(ret):
-
-        # ensure shape of input
         returns = FinanceTest.is_array(ret)
+        returns = returns[~np.isnan(returns)]
 
-        return np.mean(returns>0) # how much win over the period
+        excess  = returns - risk_free_rate / freq
+        downside = excess[excess < 0]
+        if len(downside) == 0:
+            return np.inf
+        
+        downside_std = np.sqrt(np.mean(downside ** 2))   # semi-deviation
+        if downside_std == 0:
+            return np.inf
+        
+        return float(np.sqrt(freq) * np.mean(excess) / downside_std)
+
+    @staticmethod
+    @input_warning
+    def calmar_ratio(ret, freq: int = TRADE_PERIOD) -> float:
+
+        returns = FinanceTest.is_array(ret)
+        returns = returns[~np.isnan(returns)]
+
+        ann_ret  = float(np.exp(freq * np.mean(returns)) - 1)
+
+        equity   = FinanceTest._equity_curve_raw(returns)
+        peak     = np.maximum.accumulate(equity)
+        mdd      = abs(float(((equity - peak) / peak).min()))
+
+        if mdd == 0:
+            return np.inf
+        return ann_ret / mdd
+
+
+    # TRADE LEVEL
+    @staticmethod
+    @input_warning
+    def winrate(ret) -> float:
+        returns = FinanceTest.is_array(ret)
+        return float(np.mean(returns > 0))
 
         
 
