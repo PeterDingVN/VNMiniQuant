@@ -1,8 +1,34 @@
 import numpy as np
 import pandas as pd
-from config import RISK_FREE_RATE, TRADE_PERIOD
+from config import RISK_FREE_RATE, TRADE_PERIOD, COST_RATE
 import warnings
 import functools
+
+class TransactionCost:
+    """
+        Add transaction cost into return to better reflect reality
+        The cost is used row-wise and have yet to be cumsum together
+        
+        Use:
+        log_ret + fees = real_ret => real_ret * signal = strat_ret => cumsum = total ret
+    """
+
+    def __init__(self, cost_rate: float = COST_RATE):
+        self.cost_rate = cost_rate
+
+    def transaction_cost_arr(self, signal: pd.Series) -> pd.Series:
+
+        sig = signal.fillna(0)
+        _delta = sig.diff().abs().fillna(0)
+        delta = np.where(_delta==0, 0, 1)
+
+        # cost as a simple-return fraction of equity
+        cost_simple = self.cost_rate * delta
+
+        # convert to log format -> directly subtract from log_return
+        cost_log = np.log1p(-cost_simple)
+
+        return cost_log
 
 class FinanceTest:
 
