@@ -28,7 +28,7 @@ class EmaMacdCfg:
     SHORT_EMA = 55
     SIGNAL = 50
     EMA_START = 0  # Min start for short (fastlen) and long (slowlen) ema should, if set, be 233
-    SIGNAL_START= 0 # signal start should, if set, be 50
+    SIGNAL_START= 1 # signal start should, if set, be 50
     
 
 # Core System config
