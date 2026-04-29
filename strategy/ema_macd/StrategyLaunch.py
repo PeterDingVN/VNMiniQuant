@@ -27,8 +27,7 @@ class EmaMacdStrategy:
         df_signal['trans_cost'] = cost_col
 
         # Final output data
-        df_signal['log_return'] = df_signal['log_return'] + df_signal['trans_cost']
-        df_signal['real_return'] = df_signal['log_return'] * abs(df_signal['final_signal'].shift(1))  
+        df_signal['real_return'] = df_signal['real_return'] + df_signal['trans_cost'] 
         df_signal['strat_ret'] = np.cumsum(df_signal['real_return'])
 
         return df_signal
