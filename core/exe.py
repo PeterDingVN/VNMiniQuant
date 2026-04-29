@@ -65,11 +65,9 @@ class SystemExecute:
         oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
 
         # final report payload
-        return {
-            "Strategy validity pval": pvalue,
-            "My Strategy": {oos_rep["strat_ret"]},
-            "Buy Hold Strategy": {oos_rep["bh_ret"]}
-        }
+        return f"""Strategy validity pval: {pvalue}
+My Strategy Total Return: {oos_rep["strat_ret"]}
+Buy Hold Strategy Total Return: {oos_rep["bh_ret"]}"""
     
 
     # ------------------
@@ -133,16 +131,18 @@ class SystemExecute:
     def _oos_finance_test(self, strategy, outsample: pd.DataFrame) -> Dict:
 
         o = strategy.run(outsample)
-        strat_ret_pct = FinanceTest.total_return(o["real_return"])
+
+        # Strategy Finance + Stat Test result
+        strat_ret_pct = FinanceTest.total_return(o["real_return"]) * 100
+        pf_oos = FinanceTest.profit_factor(o["real_return"])
 
         # buy&hold from log returns: exp(sum(log_ret))-1
-        bh_ret_pct = float((np.exp(o["log_return"].cumsum().iloc[-1]) - 1.0) * 100.0)
-        pf_oos = FinanceTest.profit_factor(o["real_return"])
+        bh_ret_pct = (np.exp(np.sum(o['log_return'])) - 1.0) * 100
 
         return {
             "pf_oos": pf_oos,
-            "strat_ret": round(strat_ret_pct, 4),
-            "bh_ret": round(bh_ret_pct,4)
+            "strat_ret": f"{strat_ret_pct:.3f}%",
+            "bh_ret": f"{bh_ret_pct:.3f}%"
         }
 
 # TEST CASE
