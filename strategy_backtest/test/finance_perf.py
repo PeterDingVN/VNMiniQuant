@@ -46,6 +46,14 @@ class FinanceTest:
     
     @staticmethod
     def input_warning(func):
+
+        # Customize yellow warning text
+        def yellow_warning(message, category, filename, lineno, file=None, line=None):
+            print(
+                f"\033[38;2;255;255;0m{category.__name__}: {message}\033[0m"
+            )
+        warnings.showwarning = yellow_warning
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             name_ = func.__name__
