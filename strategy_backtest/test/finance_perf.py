@@ -52,15 +52,17 @@ class FinanceTest:
             print(
                 f"\033[38;2;255;255;0m{category.__name__}: {message}\033[0m"
             )
-        warnings.showwarning = yellow_warning
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             name_ = func.__name__
+
+            warnings.showwarning = yellow_warning
             warnings.warn(
                 f"The calculation of {name_} assumes input as 'Log_return', which means"
                 f" you must translate your current input by doing np.log(close_t / close_t-1)"
             )
+            
             return func(*args, **kwargs)
         return wrapper
 
