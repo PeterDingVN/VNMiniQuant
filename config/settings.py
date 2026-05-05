@@ -41,3 +41,6 @@ class SysConfig:
     n_perm: int = 1000
     perm_start_index=0
     perm_end_index=1
+
+# Required cols
+REQ_COL = ['real_return']
