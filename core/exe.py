@@ -4,7 +4,7 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, FinanceT
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import EmaMacdCfg, SysConfig
+from config import EmaMacdCfg, SysConfig, REQ_COL
 
 from strategy import EmaMacdStrategy
 
@@ -66,8 +66,8 @@ class SystemExecute:
 
         # final report payload
         return f"""Strategy validity pval: {pvalue}
-My Strategy Total Return: {oos_rep["strat_ret"]}
-Buy Hold Strategy Total Return: {oos_rep["bh_ret"]}"""
+Expected return MY STRAT: {oos_rep["strat_ret"]}
+Expected return BUY HOLD: {oos_rep["bh_ret"]}"""
     
 
     # ------------------
@@ -93,10 +93,10 @@ Buy Hold Strategy Total Return: {oos_rep["bh_ret"]}"""
             fold_df = fold_df.reset_index()
 
             r = strategy.run(fold_df) # -->> Strategy return a dateset with cols: signal, log_ret, ...
-            req_col = [c for c in r.columns if c in ['log_return', 'real_return']] # -->> soon put them in config
+            req_col = [c for c in r.columns if c in REQ_COL]
 
-            if len(req_col) != 2: 
-                raise ValueError("We need the following cols for SystemExecute: 'log_return', 'real_return'")
+            if len(req_col) != len(REQ_COL): 
+                raise ValueError(f"We need the following cols for SystemExecute: {REQ_COL}")
             
             profit_factor = FinanceTest.profit_factor(ret=r['real_return'])
 
@@ -148,5 +148,5 @@ Buy Hold Strategy Total Return: {oos_rep["bh_ret"]}"""
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("AGR")
+    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("VN30F1M")
     print(exe)
