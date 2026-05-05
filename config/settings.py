@@ -41,6 +41,7 @@ class SysConfig:
     n_perm: int = 1000
     perm_start_index=0
     perm_end_index=1
+    init_capital = 100
 
 # Required cols
 REQ_COL = ['point_ret']
