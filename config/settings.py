@@ -8,9 +8,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_SOURCE = ["KBS", "VCI", "TCBS"]
 PORTFOLIO = ['CTD', 'AGR', 'PDR', 'NHA', 'DIG', 'CTS']
 
-# Data
+# Data -> change bar_per_day according to Interval
 START_DATE = '2015-01-01'
 INTERVAL = '1d'
+BAR_PER_DAY = 1
 
 # Number of data needed to generate ONE VALID PREDICTION
 N_LAGS = 11
