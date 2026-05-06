@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from config import RISK_FREE_RATE, TRADE_PERIOD, COST_RATE
+from config import RISK_FREE_RATE, TRADE_PERIOD, COST_RATE, BAR_PER_DAY
 import warnings
 import functools
 
@@ -26,9 +26,9 @@ class TransactionCost:
         cost_simple = self.cost_rate * delta
 
         # convert to log format -> directly subtract from log_return
-        cost_log = np.log1p(-cost_simple)
-
-        return cost_log
+        # cost_log = np.log1p(-cost_simple)
+        
+        return cost_simple
 
 class FinanceTest:
 
@@ -66,15 +66,6 @@ class FinanceTest:
             return func(*args, **kwargs)
         return wrapper
 
-        
-    # ---------------------------------
-    #        HELPER
-    #----------------------------------
-    def _equity_curve_raw(ret: np.ndarray) -> np.ndarray:
-
-        # Calculate raw return at each date since the first day
-        returns = FinanceTest.is_array(ret)
-        return np.exp(np.cumsum(returns))
     
 
     # ----------------------------------
@@ -102,100 +93,50 @@ class FinanceTest:
     # NORMAL RETURN
     @staticmethod
     @input_warning
-    def total_return(ret) -> float:
-        returns = FinanceTest.is_array(ret)
-
-        returns = returns[~np.isnan(returns)]
-        return float(np.exp(np.sum(returns)) - 1)
-    
-    @staticmethod
-    @input_warning
-    def annualized_return(ret, freq: int = TRADE_PERIOD) -> float:
-        returns = FinanceTest.is_array(ret)
-
-        returns = returns[~np.isnan(returns)]
-        return float(np.exp(freq * np.mean(returns)) - 1)
-
-
-    # VOLATILITY
-    @staticmethod
-    @input_warning
-    def annualized_volatility(ret, freq: int = TRADE_PERIOD) -> float:
-        returns = FinanceTest.is_array(ret)
-
-        returns = returns[~np.isnan(returns)]
-        return float(np.std(returns) * np.sqrt(freq))
-
-    @staticmethod
-    @input_warning
-    def max_drawdown(ret) -> float:
-
-        returns = FinanceTest.is_array(ret)
-        returns = returns[~np.isnan(returns)]
-
-        equity   = FinanceTest._equity_curve_raw(returns)
-        peak     = np.maximum.accumulate(equity)
-        drawdown = (equity - peak) / peak
-        return float(drawdown.min())
-
-    
-    # RISK ADJUSTED RETURN
-    @staticmethod
-    @input_warning
-    def sharpe_ratio(ret, risk_free_rate: float = RISK_FREE_RATE,
-                     freq: int = TRADE_PERIOD) -> float:
+    def fixed_capital_fp(df_: pd.DataFrame,
+                            point_ret_col="point_ret",
+                            risk_free_annual=RISK_FREE_RATE,
+                            daily_bars=BAR_PER_DAY):
         
-        returns        = FinanceTest.is_array(ret)
-        excess_returns = returns[~np.isnan(returns)] - risk_free_rate / freq
+        df = df_.copy()
+        if 'point_ret' not in df.columns:
+            raise KeyError("Need to provide point_ret, find its calculation in StrategyLaunch.py")
 
-        std = np.std(excess_returns)
-        if std == 0:
-            return np.inf
-        return float(np.sqrt(freq) * np.mean(excess_returns) / std)
+        gains = df[point_ret_col].fillna(0.0).astype(float)
 
-    @staticmethod
-    @input_warning
-    def sortino_ratio(ret, risk_free_rate: float = RISK_FREE_RATE,
-                      freq: int = TRADE_PERIOD) -> float:
+        equity = gains.cumsum()
+        prev_eq = equity.shift(1)
 
-        returns = FinanceTest.is_array(ret)
-        returns = returns[~np.isnan(returns)]
+        # portfolio returns (this fixes the "reset denominator" issue)
+        ret = (gains / prev_eq).fillna(0)
+        ret = np.where(np.isinf(ret), 0, ret)
 
-        excess  = returns - risk_free_rate / freq
-        downside = excess[excess < 0]
-        if len(downside) == 0:
-            return np.inf
         
-        downside_std = np.sqrt(np.mean(downside ** 2))   # semi-deviation
-        if downside_std == 0:
-            return np.inf
-        
-        return float(np.sqrt(freq) * np.mean(excess) / downside_std)
+        # TOTAL RET - according to TimeFrame
+        year_no = len(df['time'].dt.year.unique())
+        df['year'] = df['time'].dt.year
+        max_annual_close = df.groupby('year')['close'].transform('max')
+        total_return = (equity / year_no / max_annual_close).iloc[-1] 
 
-    @staticmethod
-    @input_warning
-    def calmar_ratio(ret, freq: int = TRADE_PERIOD) -> float:
+        # MAX DRAWDOWN
+        peak = equity.cummax()
+        dd = equity / peak - 1.0
+        mdd = dd.min()
 
-        returns = FinanceTest.is_array(ret)
-        returns = returns[~np.isnan(returns)]
+        # SHARPE
+        rf_per_bar = risk_free_annual / (daily_bars*252)
+        excess = ret - rf_per_bar
+        std = excess.std(ddof=1)
+        sharpe = np.nan if (std is None or std == 0 or np.isnan(std)) \
+                        else (np.sqrt(daily_bars*252) * excess.mean() / std)
 
-        ann_ret  = float(np.exp(freq * np.mean(returns)) - 1)
+        # In case we need PLOT 
+        # out = df.copy()
+        # out["equity"] = equity
+        # out["ret"] = ret
+        # out["drawdown"] = dd
 
-        equity   = FinanceTest._equity_curve_raw(returns)
-        peak     = np.maximum.accumulate(equity)
-        mdd      = abs(float(((equity - peak) / peak).min()))
-
-        if mdd == 0:
-            return np.inf
-        return ann_ret / mdd
-
-
-    # TRADE LEVEL
-    @staticmethod
-    @input_warning
-    def winrate(ret) -> float:
-        returns = FinanceTest.is_array(ret)
-        return float(np.mean(returns > 0))
+        return {"total_return": total_return, "max_drawdown": mdd, "sharpe": sharpe}
 
         
 
