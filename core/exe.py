@@ -1,6 +1,6 @@
 from data import AccessData
 
-from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, FinanceTest, StatTest, TrainTestSplit
+from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest, TrainTestSplit, FinanceTest
 import numpy as np
 import pandas as pd
 from typing import Dict
@@ -67,7 +67,8 @@ class SystemExecute:
         # final report payload
         return f"""Strategy validity pval: {pvalue}
 Expected return MY STRAT: {oos_rep["strat_ret"]}
-Expected return BUY HOLD: {oos_rep["bh_ret"]}"""
+Sharpe MY STRAT: {oos_rep["strat_sharpe"]}
+MDD MY STRAT: {oos_rep["strat_mdd"]}"""
     
 
     # ------------------
@@ -92,13 +93,13 @@ Expected return BUY HOLD: {oos_rep["bh_ret"]}"""
         for fold_df in folds:
             fold_df = fold_df.reset_index()
 
-            r = strategy.run(fold_df) # -->> Strategy return a dateset with cols: signal, log_ret, ...
+            r = strategy.run(fold_df) # -->> Strategy return a dateset with cols
             req_col = [c for c in r.columns if c in REQ_COL]
 
             if len(req_col) != len(REQ_COL): 
                 raise ValueError(f"We need the following cols for SystemExecute: {REQ_COL}")
             
-            profit_factor = FinanceTest.profit_factor(ret=r['real_return'])
+            profit_factor = FinanceTest.profit_factor(ret=r['point_ret'])
 
             pf_each_fold.append(profit_factor)
 
@@ -130,23 +131,27 @@ Expected return BUY HOLD: {oos_rep["bh_ret"]}"""
 
     def _oos_finance_test(self, strategy, outsample: pd.DataFrame) -> Dict:
 
-        o = strategy.run(outsample)
+        o = strategy.run(outsample).reset_index()
 
         # Strategy Finance + Stat Test result
-        strat_ret_pct = FinanceTest.total_return(o["real_return"]) * 100
-        pf_oos = FinanceTest.profit_factor(o["real_return"])
+        perf = FinanceTest.fixed_capital_fp(o)
+
+        strat_ret_pct = perf['total_return']*100
+        sharpe = perf['sharpe']
+        mdd = perf['max_drawdown']*100
 
         # buy&hold from log returns: exp(sum(log_ret))-1
-        bh_ret_pct = (np.exp(np.sum(o['log_return'])) - 1.0) * 100
+        bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
 
         return {
-            "pf_oos": pf_oos,
             "strat_ret": f"{strat_ret_pct:.3f}%",
+            "strat_sharpe": f"{sharpe:.3f}",
+            "strat_mdd": f"{mdd:.3f}%",
             "bh_ret": f"{bh_ret_pct:.3f}%"
         }
 
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("VN30F1M")
+    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("AGR")
     print(exe)
