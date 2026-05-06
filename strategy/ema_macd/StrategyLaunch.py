@@ -1,6 +1,6 @@
 from .BuildFeature import EmaMacdFeatures
 from .SignalGen import generate_signals
-from config import EmaMacdCfg
+from config import EmaMacdCfg, COST_RATE
 from strategy_backtest import TransactionCost
 import pandas as pd
 import numpy as np
@@ -11,7 +11,7 @@ class EmaMacdStrategy:
     def __init__(self, config: EmaMacdCfg):
         self.cfg = config
 
-    def run(self, df: pd.DataFrame)-> pd.DataFrame:
+    def run(self, df: pd.DataFrame, cost_rate: float=COST_RATE)-> pd.DataFrame:
 
         # Copy data
         df_cp = df.copy()
@@ -23,12 +23,13 @@ class EmaMacdStrategy:
         df_signal = generate_signals(df_fe, start_sig=self.cfg.SIGNAL_START)
 
         # Add transaction cost
-        cost_col = TransactionCost().transaction_cost_arr(df_signal['final_signal'])
-        df_signal['trans_cost'] = cost_col
+        pos_cost_pct = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df_signal['final_signal'])
+        trans_cost = pos_cost_pct * df_signal['close']
 
-        # Final output data
-        df_signal['real_return'] = df_signal['real_return'] + df_signal['trans_cost'] 
-        df_signal['strat_ret'] = np.cumsum(df_signal['real_return'])
+        # Final output data (add col for PnL)
+        pt_ret = (df_signal['close'] - df_signal['close'].shift(1)).fillna(0)
+        df_signal['point_ret'] = pt_ret * df_signal['final_signal'] - trans_cost
+
 
         return df_signal
         
