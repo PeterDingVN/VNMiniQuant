@@ -134,7 +134,7 @@ class FinanceTest:
         # SHARPE
         avg_ret = daily_gains.mean()
         volatility = daily_gains.std()
-        sharpe = avg_ret / volatility * np.sqrt(252)
+        sharpe = avg_ret / volatility * np.sqrt(trade_ped)
         
 
         return {"total_return": total_return, "max_drawdown": mdd, "sharpe": sharpe}
