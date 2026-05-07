@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from config import RISK_FREE_RATE, TRADE_PERIOD, COST_RATE, BAR_PER_DAY
+from config import RISK_FREE_RATE, COST_RATE, TRADE_PERIOD
 import warnings
 import functools
 
@@ -96,45 +96,46 @@ class FinanceTest:
     def fixed_capital_fp(df_: pd.DataFrame,
                             point_ret_col="point_ret",
                             risk_free_annual=RISK_FREE_RATE,
-                            daily_bars=BAR_PER_DAY):
+                            trade_ped=TRADE_PERIOD):
         
-        df = df_.copy()
-        if 'point_ret' not in df.columns:
-            raise KeyError("Need to provide point_ret, find its calculation in StrategyLaunch.py")
-
-        gains = df[point_ret_col].fillna(0.0).astype(float)
-
-        equity = gains.cumsum()
-        prev_eq = equity.shift(1)
-
-        # portfolio returns (this fixes the "reset denominator" issue)
-        ret = (gains / prev_eq).fillna(0)
-        ret = np.where(np.isinf(ret), 0, ret)
-
+        df = df_.reset_index().copy()
+        if 'point_ret' and 'time' not in df.columns:
+            raise KeyError("Need to provide 'point_ret'")
         
-        # TOTAL RET - according to TimeFrame
-        year_no = len(df['time'].dt.year.unique())
-        df['year'] = df['time'].dt.year
-        max_annual_close = df.groupby('year')['close'].transform('max')
-        total_return = (equity / year_no / max_annual_close).iloc[-1] 
+        df = df.set_index('time')
+
+        # PnL/Equity Curve
+        daily_gains = df[point_ret_col].fillna(0).resample('D').sum(min_count=1).dropna(how='all')
+        equity = daily_gains.cumsum()
+
+        year_no = len(df.index.year.unique())
+
+        max_annual_close = df.groupby(df.index.year)['close'].transform('max')
+        max_annual_close = (
+            max_annual_close
+            .groupby(pd.Grouper(freq='D'))
+            .last(min_count=1)
+            .dropna()
+        )
+
+
+        # Normalized PnL/Equity Curve
+        pnl_curve = equity / year_no / max_annual_close
+   
+
+        # TOTAL RET - daily return (according to data TimeFrame)
+        total_return = pnl_curve.iloc[-1] 
 
         # MAX DRAWDOWN
-        peak = equity.cummax()
-        dd = equity / peak - 1.0
+        peak = pnl_curve.cummax()
+        dd = pnl_curve / peak - 1.0
         mdd = dd.min()
 
         # SHARPE
-        rf_per_bar = risk_free_annual / (daily_bars*252)
-        excess = ret - rf_per_bar
-        std = excess.std(ddof=1)
-        sharpe = np.nan if (std is None or std == 0 or np.isnan(std)) \
-                        else (np.sqrt(daily_bars*252) * excess.mean() / std)
-
-        # In case we need PLOT 
-        # out = df.copy()
-        # out["equity"] = equity
-        # out["ret"] = ret
-        # out["drawdown"] = dd
+        avg_ret = daily_gains.mean()
+        volatility = daily_gains.std()
+        sharpe = avg_ret / volatility * np.sqrt(252)
+        
 
         return {"total_return": total_return, "max_drawdown": mdd, "sharpe": sharpe}
 
