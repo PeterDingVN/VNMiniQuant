@@ -129,7 +129,7 @@ class FinanceTest:
         # MAX DRAWDOWN
         peak = pnl_curve.cummax()
         dd = pnl_curve / peak - 1.0
-        mdd = dd.min()
+        mdd = dd.replace([np.inf, -np.inf], np.nan).min()
 
         # SHARPE
         avg_ret = daily_gains.mean()
