@@ -104,7 +104,7 @@ class FinanceTest:
         
         df = df.set_index('time')
 
-        # PnL/Equity Curve
+        # normalized pnl/equity curve 
         daily_gains = df[point_ret_col].fillna(0).resample('D').sum(min_count=1).dropna(how='all')
         equity = daily_gains.cumsum()
 
@@ -118,8 +118,6 @@ class FinanceTest:
             .dropna()
         )
 
-
-        # Normalized PnL/Equity Curve
         pnl_curve = equity / year_no / max_annual_close
    
 
