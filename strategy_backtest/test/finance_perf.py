@@ -126,7 +126,7 @@ class FinanceTest:
 
         # MAX DRAWDOWN
         peak = pnl_curve.cummax()
-        dd = pnl_curve / peak - 1.0
+        dd = pnl_curve - peak
         mdd = dd.replace([np.inf, -np.inf], np.nan).min()
 
         # SHARPE
