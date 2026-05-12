@@ -72,11 +72,14 @@ class FinanceTest:
     # This is metric used for MCPT TEST
     # -----------------------------------
     @ staticmethod
-    def profit_factor(ret: pd.Series|np.ndarray) -> float:
-        
-        # ensure shape of input
-        returns = FinanceTest.is_array(ret)
+    def profit_factor(df_: pd.DataFrame, pos_col: str) -> float:
 
+        if pos_col not in df_:
+            raise KeyError("Return to your strategy and add position column into data")
+        
+        log_close = np.log(df_['close']/df_['close'].shift(1))
+        returns = log_close*df_[pos_col]
+        
         # Profit factor cal
         gains = returns[returns > 0].sum()
         losses = -returns[returns < 0].sum()
