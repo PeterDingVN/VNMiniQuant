@@ -29,6 +29,7 @@ class EmaMacdStrategy:
         # Final output data (add col for PnL)
         pt_ret = (df_signal['close'] - df_signal['close'].shift(1)).fillna(0)
         df_signal['point_ret'] = pt_ret * df_signal['final_signal'] - trans_cost
+        df_signal['position'] = df_signal['final_signal']
 
 
         return df_signal
