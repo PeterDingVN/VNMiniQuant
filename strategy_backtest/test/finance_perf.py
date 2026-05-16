@@ -97,11 +97,12 @@ class FinanceTest:
     @staticmethod
     @input_warning
     def fixed_capital_fp(df_: pd.DataFrame,
-                            point_ret_col="point_ret",
                             risk_free_annual=RISK_FREE_RATE,
                             trade_ped=TRADE_PERIOD):
         
         df = df_.reset_index().copy()
+        point_ret_col = 'point_ret'
+
         if 'point_ret' and 'time' not in df.columns:
             raise KeyError("Need to provide 'point_ret'")
         
@@ -135,7 +136,7 @@ class FinanceTest:
         # SHARPE
         avg_ret = daily_gains.mean()
         volatility = daily_gains.std()
-        sharpe = avg_ret / volatility * np.sqrt(trade_ped)
+        sharpe = (avg_ret - risk_free_annual) / volatility * np.sqrt(trade_ped)
         
 
         return {"total_return": total_return, "max_drawdown": mdd, "sharpe": sharpe}
