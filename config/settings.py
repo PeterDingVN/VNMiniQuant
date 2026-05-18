@@ -18,8 +18,13 @@ N_LAGS = 11
 # Finance Performance Test config
 RISK_FREE_RATE = 0.0 # ---> US Treasury Bond Rate
 TRADE_PERIOD = 252 # ----> total trade periods per year, subtracting holidays, weekends
-COST_RATE = 0.0015 # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
 
+@dataclass
+class AssetType:
+    cost_type = {
+    'stock': 0.0015, # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
+    'future': 0.044
+    }
 
 # Strategy 1: EMA crossover + MACD
 @dataclass
@@ -29,7 +34,22 @@ class EmaMacdCfg:
     SIGNAL = 50
     EMA_START = 0  # Min start for short (fastlen) and long (slowlen) ema should, if set, be 233
     SIGNAL_START= 1 # signal start should, if set, be 50
-    
+
+@dataclass 
+class DonchianCfg:
+    config = {
+    "lookback": 12
+    }
+
+@dataclass 
+class DonchianTurtleCfg:
+    config = {
+    "shortexit": 30,
+    "longexit": 33,
+    "bandfactor": 1.24,
+    "longperiod": 55,
+    "shortperiod": 50
+    }
 
 # Core System config
 @dataclass
@@ -39,7 +59,7 @@ class SysConfig:
     w4w_testsize: float = 0.2
     gap: int = 0
     n_perm: int = 1000
-    perm_start_index=0
+    perm_start_index=20
     perm_end_index=1
     init_capital = 100
 
