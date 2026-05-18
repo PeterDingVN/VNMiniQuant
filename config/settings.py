@@ -30,12 +30,8 @@ class AssetType:
 
 # Strategy 1: EMA crossover + MACD
 @dataclass
-class EmaMacdCfg:
-    LONG_EMA = 233
-    SHORT_EMA = 55
-    SIGNAL = 50
-    EMA_START = 0  # Min start for short (fastlen) and long (slowlen) ema should, if set, be 233
-    SIGNAL_START= 1 # signal start should, if set, be 50
+class DonchianCfg:
+    lookback = 28
     
 
 # Core System config
@@ -45,7 +41,7 @@ class SysConfig:
     k_fold: int = 3
     w4w_testsize: float = 0.2
     gap: int = 0
-    n_perm: int = 1000
-    perm_start_index=0
+    n_perm: int = 1   # Reduce to 1 perm for faster testing
+    perm_start_index=28
     perm_end_index=1
     init_capital = 100
