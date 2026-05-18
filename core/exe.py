@@ -70,9 +70,9 @@ class SystemExecute:
 
         # final report payload
         return f"""Strategy validity pval: {pvalue}
-Expected return MY STRAT: {oos_rep["strat_ret"]}
-Sharpe MY STRAT: {oos_rep["strat_sharpe"]}
-MDD MY STRAT: {oos_rep["strat_mdd"]}"""
+Return per year: {oos_rep["strat_ret"]}
+Sharpe: {oos_rep["strat_sharpe"]}
+MDD: {oos_rep["strat_mdd"]}"""
     
 
     # ------------------
@@ -136,7 +136,7 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
         # Strategy Finance + Stat Test result
         perf = FinanceTest.fixed_capital_fp(o)
 
-        strat_ret_pct = perf['total_return']
+        strat_ret_pct = perf['return_per_year']
         sharpe = perf['sharpe']
         mdd = perf['max_drawdown']
 
