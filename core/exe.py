@@ -4,7 +4,7 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import EmaMacdCfg, SysConfig, REQ_COL
+from config import EmaMacdCfg, SysConfig
 
 from strategy import EmaMacdStrategy
 
@@ -94,12 +94,8 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
             fold_df = fold_df.reset_index()
 
             r = strategy.run(fold_df) # -->> Strategy return a dateset with cols
-            req_col = [c for c in r.columns if c in REQ_COL]
-
-            if len(req_col) != len(REQ_COL): 
-                raise ValueError(f"We need the following cols for SystemExecute: {REQ_COL}")
             
-            profit_factor = FinanceTest.profit_factor(ret=r['point_ret'])
+            profit_factor = FinanceTest.profit_factor(df_ = r, pos_col = 'position')
 
             pf_each_fold.append(profit_factor)
 
