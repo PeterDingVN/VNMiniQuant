@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from config import RISK_FREE_RATE, COST_RATE, TRADE_PERIOD
+from config import RISK_FREE_RATE, TRADE_PERIOD, AssetType
 import warnings
 import functools
 
@@ -13,7 +13,7 @@ class TransactionCost:
         log_ret + fees = real_ret => real_ret * signal = strat_ret => cumsum = total ret
     """
 
-    def __init__(self, cost_rate: float = COST_RATE):
+    def __init__(self, cost_rate: float):
         self.cost_rate = cost_rate
 
     def transaction_cost_arr(self, signal: pd.Series) -> pd.Series:
@@ -95,21 +95,34 @@ class FinanceTest:
 
     # NORMAL RETURN
     @staticmethod
-    @input_warning
     def fixed_capital_fp(df_: pd.DataFrame,
+                            asset_type: float = "future",
                             risk_free_annual=RISK_FREE_RATE,
                             trade_ped=TRADE_PERIOD):
         
         df = df_.reset_index().copy()
-        point_ret_col = 'point_ret'
 
-        if 'point_ret' and 'time' not in df.columns:
-            raise KeyError("Need to provide 'point_ret'")
+        if not all(c in df.columns for c in ['position', 'time', 'close']):
+            raise KeyError("Provide your data with cols exactly named: position, time, close")
         
         df = df.set_index('time')
 
-        # normalized pnl/equity curve 
-        daily_gains = df[point_ret_col].fillna(0).resample('D').sum(min_count=1).dropna(how='all')
+        # normalized pnl/equity curve
+
+        if asset_type == "future":
+            cost_rate = AssetType.cost_type['future']
+            cost_arr = TransactionCost(cost_rate = cost_rate).transaction_cost_arr(signal=df['position']) 
+            cost_point = cost_arr * df['close']
+            gains_after_fee = df['close'].diff().fillna(0) * df['position'] - cost_point
+
+        elif asset_type == 'stock':
+            cost_rate = AssetType.cost_type['stock']
+            cost_arr = TransactionCost(cost_rate = cost_rate).transaction_cost_arr(signal=df['position']) 
+            cost_pct = cost_arr * df['close']
+            gains_after_fee = df['close'].diff().fillna(0) * df['position'] - cost_pct*df['close']
+
+
+        daily_gains = gains_after_fee.fillna(0).resample('D').sum(min_count=1).dropna(how='all')
         equity = daily_gains.cumsum()
 
         year_no = len(df.index.year.unique())
