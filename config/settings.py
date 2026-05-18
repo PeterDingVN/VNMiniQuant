@@ -19,7 +19,13 @@ N_LAGS = 11
 # Finance Performance Test config
 RISK_FREE_RATE = 0.0 # ---> US Treasury Bond Rate
 TRADE_PERIOD = 252 # ----> total trade periods per year, subtracting holidays, weekends
-COST_RATE = 0.0015 # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
+
+@dataclass
+class AssetType:
+    cost_type = {
+    'stock':0.0015, # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
+    'future': 0.044
+    }
 
 
 # Strategy 1: EMA crossover + MACD
@@ -43,6 +49,3 @@ class SysConfig:
     perm_start_index=0
     perm_end_index=1
     init_capital = 100
-
-# Required cols
-REQ_COL = ['point_ret']
