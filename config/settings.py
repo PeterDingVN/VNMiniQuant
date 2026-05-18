@@ -24,7 +24,7 @@ TRADE_PERIOD = 252 # ----> total trade periods per year, subtracting holidays, w
 class AssetType:
     cost_type = {
     'stock':0.0015, # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
-    'future': 0.044
+    'future': 0.04
     }
 
 
