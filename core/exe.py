@@ -4,9 +4,9 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import EmaMacdCfg, SysConfig
+from config import SysConfig, DonchianCfg
 
-from strategy import EmaMacdStrategy
+from strategy import Donchian
 
 
 class SystemExecute:
@@ -50,6 +50,7 @@ class SystemExecute:
         
 
         # W4W Training
+        print("START W4W TRAINING")
         pf_w4w_is = self._walkforward_train(strategy=self.strategy,  # --> Need update to generate permutation for miltipel assets a time
                                           insample=ins, 
                                           k_fold=self.cfg.k_fold, 
@@ -58,10 +59,13 @@ class SystemExecute:
 
 
         # MCPT Stat Test
+        print("START STAT TEST")
         pvalue = self._mcpt_stat_test(pf_original=pf_w4w_is, insample=ins)
 
 
         # OOS Finance Test
+        print(" ")
+        print("========= STRATEGY RESULT =========")
         oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
 
         # final report payload
@@ -132,9 +136,9 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
         # Strategy Finance + Stat Test result
         perf = FinanceTest.fixed_capital_fp(o)
 
-        strat_ret_pct = perf['total_return']*100
+        strat_ret_pct = perf['total_return']
         sharpe = perf['sharpe']
-        mdd = perf['max_drawdown']*100
+        mdd = perf['max_drawdown']
 
         # buy&hold from log returns: exp(sum(log_ret))-1
         bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
@@ -149,5 +153,5 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("AGR")
+    exe = SystemExecute(strategy=Donchian(config=DonchianCfg), config=SysConfig).execute("VN30F1M")
     print(exe)
