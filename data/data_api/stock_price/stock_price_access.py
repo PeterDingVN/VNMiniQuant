@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 from vnstock import Vnstock
 
-from config import DATA_SOURCE, START_DATE, INTERVAL, N_LAGS, PROJECT_ROOT, PORTFOLIO
+from config import DATA_SOURCE, START_DATE, INTERVAL, PROJECT_ROOT
 
 
 
@@ -99,7 +99,7 @@ class AccessSingleData(_FetchData):
                  cache_root: str = PROJECT_ROOT,  # Not recommend changing this
                  start: str = START_DATE,
                  interval: str = INTERVAL,
-                 countback: int = N_LAGS+1,  
+                 countback: int =  12+1,   # always add 1 to get enough candle counts
                  **kwargs):
         
         super().__init__(**kwargs)
@@ -222,7 +222,7 @@ class AccessData:
                        cache_root: str = PROJECT_ROOT,  # Not recommend changing this
                        start: str = START_DATE,
                        interval: str = INTERVAL,
-                       countback: int = N_LAGS+1):
+                       countback: int = 12+1):   # Always add 1 to get enough candles
         
         if isinstance(symbol, str):
             self.symbols = [symbol]
