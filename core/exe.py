@@ -4,9 +4,9 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import SysConfig, DonchianCfg
+from config import SysConfig, EmaCfg
 
-from strategy import Donchian
+from strategy_sample import ema_crossover_strategy
 
 
 class SystemExecute:
@@ -30,13 +30,13 @@ class SystemExecute:
     # ---------------
     #      MAIN 
     # ---------------
-    def execute(self, stock: str) -> Dict: # --> Future update needs stock = list not str
+    def execute(self, asset: str, asset_type: str) -> Dict: # --> Future update needs stock = list not str
 
         # Read Data
-        data_stock = AccessData(symbol=stock).access_data(purpose='train')[0]['data'] # -> need update to run multiple assets
+        data_stock = AccessData(symbol=asset).access_data(purpose='train')[0]['data'] # -> need update to run multiple assets
 
         if data_stock.empty:
-            raise ValueError(f"Data for {stock} is empty")
+            raise ValueError(f"Data for {asset} is empty")
         elif not isinstance(data_stock, pd.DataFrame):
             raise ValueError("AccessData auto return data(s) in a dict -> take data by data_stock[<data_id>]['data']")
 
@@ -65,9 +65,9 @@ class SystemExecute:
 
         # OOS Finance Test
         print(" ")
-        print("============= STRATEGY RESULT ============")
         print("  Result can be optimistic from reality  ")
-        oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
+        print("============= STRATEGY RESULT ============")
+        oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos, asset_type=asset_type)
 
         # final report payload
         return f"""Strategy validity pval: {pvalue}
@@ -130,12 +130,12 @@ MDD: {oos_rep["strat_mdd"]}"""
         return StatTest.quasi_pvalue(mcpt_better=pf_better, all_trials=self.cfg.n_perm)
     
 
-    def _oos_finance_test(self, strategy, outsample: pd.DataFrame) -> Dict:
+    def _oos_finance_test(self, strategy, outsample: pd.DataFrame, asset_type:str) -> Dict:
 
         o = strategy.run(outsample).reset_index()
 
         # Strategy Finance + Stat Test result
-        perf = FinanceTest.fixed_capital_fp(o)
+        perf = FinanceTest.fixed_capital_fp(o, asset_type=asset_type)
 
         strat_ret_pct = perf['return_per_year']
         sharpe = perf['sharpe']
@@ -154,5 +154,6 @@ MDD: {oos_rep["strat_mdd"]}"""
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=Donchian(config=DonchianCfg), config=SysConfig).execute("VN30F1M")
+    exe = SystemExecute(strategy=ema_crossover_strategy(config=EmaCfg.config), 
+                        config=SysConfig).execute("VN30F1M", asset_type='future')
     print(exe)
