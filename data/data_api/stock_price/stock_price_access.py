@@ -290,7 +290,7 @@ if __name__ == '__main__':
     import time
     time_s = time.perf_counter()
 
-    all_symbols = PORTFOLIO
+    all_symbols = 'AGR'
     portfo = AccessData(all_symbols).access_data(purpose='pred')
     print(len(portfo[0]['data']))
 
