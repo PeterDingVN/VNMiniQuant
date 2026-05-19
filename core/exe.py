@@ -65,7 +65,8 @@ class SystemExecute:
 
         # OOS Finance Test
         print(" ")
-        print("========= STRATEGY RESULT =========")
+        print("============= STRATEGY RESULT ============")
+        print("  Result can be optimistic from reality  ")
         oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
 
         # final report payload
