@@ -15,11 +15,14 @@ config = {
 
 # Strategy 1: EMA crossover + MACD
 @dataclass
-class EmaCfg:
+class DonchianCfg:
     config = {
-        'fastperiod':55,
-        'slowperiod': 233
-    }
+        "don_lookback": 12,
+        "ema_lookback": 20,
+        "atr_lookback": 10,
+        "long_atr_mult": 2,
+        "short_atr_mult": 0.6
+        }
 
 
 
