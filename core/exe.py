@@ -4,9 +4,9 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import SysConfig, EmaCfg
+from config import SysConfig, DonchianCfg
 
-from strategy_sample import ema_crossover_strategy
+from strategy_sample import DonchianBreakout
 
 
 class SystemExecute:
@@ -154,6 +154,6 @@ MDD: {oos_rep["strat_mdd"]}"""
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=ema_crossover_strategy(config=EmaCfg.config), 
+    exe = SystemExecute(strategy=DonchianBreakout(config=DonchianCfg.config), 
                         config=SysConfig).execute("VN30F1M", asset_type='future')
     print(exe)
