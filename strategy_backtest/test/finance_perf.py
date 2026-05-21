@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 from config import RISK_FREE_RATE, TRADE_PERIOD, AssetType
-import warnings
-import functools
 
 class TransactionCost:
     """
@@ -19,23 +17,17 @@ class TransactionCost:
     def transaction_cost_arr(self, signal: pd.Series) -> pd.Series:
 
         sig = signal.fillna(0)
-        _delta = sig.diff().abs().fillna(0)
-        delta = np.where(_delta==0, 0, 1)
-
-        # cost as a simple-return fraction of equity
+        delta = sig.diff().abs().fillna(0)
         cost_simple = self.cost_rate * delta
 
-        # convert to log format -> directly subtract from log_return
-        # cost_log = np.log1p(-cost_simple)
-        
+
         return cost_simple
 
 class FinanceTest:
 
     # ---------
-    #   Validate and warning
+    #   Validate input
     # ----------
-
     @staticmethod
     def is_array(input_):
         if isinstance(input_, pd.Series):
@@ -44,32 +36,9 @@ class FinanceTest:
 
         return input_.ravel()   
     
-    @staticmethod
-    def input_warning(func):
-
-        # Customize yellow warning text
-        def yellow_warning(message, category, filename, lineno, file=None, line=None):
-            print(
-                f"\033[38;2;255;255;0m{category.__name__}: {message}\033[0m"
-            )
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            name_ = func.__name__
-
-            warnings.showwarning = yellow_warning
-            warnings.warn(
-                f"The calculation of {name_} assumes input as 'Log_return', which means"
-                f" you must translate your current input by doing np.log(close_t / close_t-1)"
-            )
-            
-            return func(*args, **kwargs)
-        return wrapper
-
-    
 
     # ----------------------------------
-    # This is metric used for MCPT TEST
+    # This is metric used for MCPT TEST =>> NEED FIX
     # -----------------------------------
     @ staticmethod
     def profit_factor(df_: pd.DataFrame, pos_col: str) -> float:
@@ -90,73 +59,304 @@ class FinanceTest:
     
     
     # -----------------------
-    # Additional metrics
+    # Reports
     # ------------------------
-
-    # NORMAL RETURN
     @staticmethod
-    def fixed_capital_fp(df_: pd.DataFrame,
-                            asset_type: float = "future",
-                            risk_free_annual=RISK_FREE_RATE,
-                            trade_ped=TRADE_PERIOD):
+    # def fixed_capital_fp(
+    #         df_: pd.DataFrame,
+    #         asset_type: str = "future",
+    #         risk_free_annual: float = RISK_FREE_RATE,
+    #         trade_period: int = TRADE_PERIOD,
+    #         ):
+    #     """
+    #         Required columns:
+    #         ['time', 'close', 'position']
+
+    #     """
         
-        df = df_.reset_index().copy()
+    #     # Validate data and Set index
+    #     df = df_.copy()
+    #     required_cols = ["time", "close", "position"]
+    #     if not all(c in df.columns for c in required_cols):
+    #         raise KeyError(f"Missing columns. Required: {required_cols}")
 
-        if not all(c in df.columns for c in ['position', 'time', 'close']):
-            raise KeyError("Provide your data with cols exactly named: position, time, close")
+    #     df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    #     df = (
+    #         df.dropna(subset=["time"])
+    #         .sort_values("time")
+    #         .set_index("time")
+    #     )
+    #     df = df.dropna(subset=["close"])
+
+
+    #     # Position and Daily Absolute return
+    #     pos_held = df["position"].shift(1).fillna(0.0)
+    #     price_diff = df["close"].diff().fillna(0.0)
+
+
+    #     # Cost calculation
+    #     if asset_type == "future":
+    #         cost_rate = AssetType.cost_type["future"]
+    #         cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+    #         gains_after_fee = price_diff * pos_held - cost_arr
+
+    #     elif asset_type == "stock":
+    #         cost_rate = AssetType.cost_type["stock"]
+    #         cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+    #         proportional_cost = cost_arr * df["close"]
+    #         gains_after_fee = price_diff * pos_held - proportional_cost
+
+    #     else:
+    #         raise ValueError("asset_type must be 'future' or 'stock'")
+
         
-        df = df.set_index('time')
+    #     # Daily PnL
+    #     daily_gains = (
+    #         gains_after_fee
+    #         .resample("D")
+    #         .sum(min_count=1)
+    #         .dropna()
+    #     )
 
-        # normalized pnl/equity curve
+    #     yearly_max_close = df["close"].groupby(df.index.year).transform("max")
 
+    #     yearly_max_close_daily = (
+    #         yearly_max_close
+    #         .resample("D")
+    #         .last()
+    #         .reindex(daily_gains.index)
+    #         .replace(0, np.nan)
+    #         .ffill()
+    #     )
+
+    #     daily_ret = (
+    #         daily_gains / yearly_max_close_daily
+    #     ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    #     equity_curve = 1.0 + daily_ret.cumsum()
+
+
+    #     # 1. TOTAL RETURN
+    #     n_years = max(len(daily_ret) / trade_period, 1e-9)
+
+    #     total_return = (
+    #         equity_curve.iloc[-1] - 1.0
+    #     ) / n_years
+
+        
+    #     # 2. MDD
+    #     rolling_peak = equity_curve.cummax()
+    #     drawdown = (
+    #         equity_curve / rolling_peak
+    #     ) - 1.0
+    #     max_drawdown = drawdown.min()
+
+
+    #     # 3. SHARPE
+    #     rf_daily = (
+    #         (1.0 + risk_free_annual)
+    #         ** (1.0 / trade_period)
+    #         - 1.0
+    #     )
+
+    #     excess_ret = daily_ret - rf_daily
+    #     vol = excess_ret.std(ddof=1)
+
+    #     sharpe = (
+    #         np.nan
+    #         if (vol == 0 or np.isnan(vol))
+    #         else (
+    #             excess_ret.mean()/ vol * np.sqrt(trade_period)
+    #         )
+    #     )
+
+
+    #     return {
+    #         "return_per_year": float(total_return * 100),
+    #         "max_drawdown": float(max_drawdown * 100),
+    #         "sharpe": float(sharpe)}
+
+    def fixed_capital_fp(
+            df_: pd.DataFrame,
+            asset_type: str = "future",
+            risk_free_annual: float = RISK_FREE_RATE,
+            trade_period: int = TRADE_PERIOD,
+            ):
+        """
+        Required columns:
+        ['time', 'close', 'position']
+        """
+
+        # -------------------------
+        # Validate data and set index
+        # -------------------------
+        df = df_.copy()
+
+        required_cols = ["time", "close", "position"]
+        if not all(c in df.columns for c in required_cols):
+            raise KeyError(f"Missing columns. Required: {required_cols}")
+
+        df["time"] = pd.to_datetime(df["time"], errors="coerce")
+
+        df = (
+            df.dropna(subset=["time"])
+            .sort_values("time")
+            .set_index("time")
+        )
+
+        df = df.dropna(subset=["close"])
+
+        # -------------------------
+        # Position and price movement
+        # -------------------------
+        pos_held = df["position"].shift(1).fillna(0.0)
+        price_diff = df["close"].diff().fillna(0.0)
+
+        # -------------------------
+        # Transaction cost
+        # -------------------------
         if asset_type == "future":
-            cost_rate = AssetType.cost_type['future']
-            cost_arr = TransactionCost(cost_rate = cost_rate).transaction_cost_arr(signal=df['position']) 
-            cost_point = cost_arr * df['close']
-            gains_after_fee = df['close'].diff().fillna(0) * df['position'] - cost_point
 
-        elif asset_type == 'stock':
-            cost_rate = AssetType.cost_type['stock']
-            cost_arr = TransactionCost(cost_rate = cost_rate).transaction_cost_arr(signal=df['position']) 
-            cost_pct = cost_arr * df['close']
-            gains_after_fee = df['close'].diff().fillna(0) * df['position'] - cost_pct*df['close']
+            cost_rate = AssetType.cost_type["future"]
 
+            cost_arr = TransactionCost(
+                cost_rate=cost_rate
+            ).transaction_cost_arr(df["position"])
 
-        daily_gains = gains_after_fee.fillna(0).resample('D').sum(min_count=1).dropna(how='all')
-        equity = daily_gains.cumsum()
+            gains_after_fee = (
+                price_diff * pos_held
+                - cost_arr
+            )
 
-        year_no = len(df.index.year.unique())
+        elif asset_type == "stock":
 
-        max_annual_close = df.groupby(df.index.year)['close'].transform('max')
-        max_annual_close = (
-            max_annual_close
-            .groupby(pd.Grouper(freq='D'))
-            .last(min_count=1)
+            cost_rate = AssetType.cost_type["stock"]
+
+            cost_arr = TransactionCost(
+                cost_rate=cost_rate
+            ).transaction_cost_arr(df["position"])
+
+            proportional_cost = (
+                cost_arr * df["close"]
+            )
+
+            gains_after_fee = (
+                price_diff * pos_held
+                - proportional_cost
+            )
+
+        else:
+            raise ValueError(
+                "asset_type must be 'future' or 'stock'"
+            )
+
+        # -------------------------
+        # DAILY PNL
+        # -------------------------
+        daily_pnl = (
+            gains_after_fee
+            .resample("D")
+            .sum(min_count=1)
             .dropna()
         )
 
-        pnl_curve = equity / year_no / max_annual_close
-   
+        # -------------------------
+        # Dynamic capital base
+        # Using expanding max close
+        # More conservative and causal
+        # -------------------------
+        capital_base = (
+            df["close"]
+            .cummax()
+        )
 
-        # TOTAL RET - daily return (according to data TimeFrame)
-        total_return = pnl_curve.iloc[-1] 
+        capital_base_daily = (
+            capital_base
+            .resample("D")
+            .last()
+            .reindex(daily_pnl.index)
+            .replace(0, np.nan)
+            .ffill()
+        )
 
+        # -------------------------
+        # DAILY PNL
+        # -------------------------
+        daily_pnl = (
+            gains_after_fee
+            .resample("D")
+            .sum(min_count=1)
+            .dropna()
+        )
+
+        # cumulative pnl curve
+        pnl_curve = daily_pnl.cumsum()
+
+        yearly_max_close = df["close"].groupby(df.index.year).transform("max")
+
+        yearly_max_close_daily = (
+            yearly_max_close
+            .resample("D")
+            .last()
+            .reindex(pnl_curve.index)
+            .replace(0, np.nan)
+            .ffill()
+        )
+
+        # normalize pnl curve by yearly max close
+        equity_curve = (
+            pnl_curve / yearly_max_close_daily
+        ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+        # -------------------------
+        # 1. TOTAL RETURN
+        # -------------------------
+        n_years = max(len(daily_pnl) / trade_period, 1e-9)
+
+        total_return = equity_curve.iloc[-1] / n_years
+
+        # -------------------------
         # MAX DRAWDOWN
-        peak = pnl_curve.cummax()
-        dd = pnl_curve - peak
-        mdd = dd.replace([np.inf, -np.inf], np.nan).min()
+        # -------------------------
+        rolling_peak = (
+            equity_curve.cummax()
+        )
 
+        drawdown = (
+            equity_curve / rolling_peak
+        ) - 1.0
+
+        max_drawdown = drawdown.min()
+
+        # -------------------------
         # SHARPE
-        avg_ret = daily_gains.mean()
-        volatility = daily_gains.std()
-        sharpe = (avg_ret - risk_free_annual) / volatility * np.sqrt(trade_ped)
-        
+        # -------------------------
+        rf_daily = (
+            (1.0 + risk_free_annual)
+            ** (1.0 / trade_period)
+            - 1.0
+        )
 
-        return {"total_return": total_return, "max_drawdown": mdd, "sharpe": sharpe}
+        excess_ret = (
+            daily_pnl - rf_daily
+        )
 
-        
+        vol = excess_ret.std(ddof=1)
 
+        sharpe = (
+            np.nan
+            if (vol == 0 or np.isnan(vol))
+            else (
+                excess_ret.mean()
+                / vol
+                * np.sqrt(trade_period)
+            )
+        )
 
+        return {
+            "return_per_year": float(total_return * 100),
+            "max_drawdown": float(max_drawdown * 100),
+            "sharpe": float(sharpe),
+        }
 
-        
-
+    
