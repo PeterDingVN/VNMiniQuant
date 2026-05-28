@@ -11,6 +11,7 @@ PORTFOLIO = ['CTD', 'AGR', 'PDR', 'NHA', 'DIG', 'CTS']
 # Data -> change bar_per_day according to Interval
 START_DATE = '2015-01-01'
 INTERVAL = '1d'
+BAR_PER_DAY = 1
 
 # Number of data needed to generate ONE VALID PREDICTION
 N_LAGS = 11
@@ -22,34 +23,21 @@ TRADE_PERIOD = 252 # ----> total trade periods per year, subtracting holidays, w
 @dataclass
 class AssetType:
     cost_type = {
-    'stock': 0.0015, # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
+    'stock':0.0015, # -> splippage and trans cost: 0.15% plus 0.02% from slippage, no tax accounted
     'future': 0.044
     }
 
+
 # Strategy 1: EMA crossover + MACD
 @dataclass
-class EmaMacdCfg:
-    LONG_EMA = 233
-    SHORT_EMA = 55
-    SIGNAL = 50
-    EMA_START = 0  # Min start for short (fastlen) and long (slowlen) ema should, if set, be 233
-    SIGNAL_START= 1 # signal start should, if set, be 50
-
-@dataclass 
 class DonchianCfg:
     config = {
-    "lookback": 12
+        "trend_lb": 170,
+        "uptrend_min_slope": 0.1,
+        "downtrend_min_slope": -0.06,
+        "bb_lb": 20
     }
-
-@dataclass 
-class DonchianTurtleCfg:
-    config = {
-    "shortexit": 30,
-    "longexit": 33,
-    "bandfactor": 1.24,
-    "longperiod": 55,
-    "shortperiod": 50
-    }
+    
 
 # Core System config
 @dataclass
@@ -58,10 +46,7 @@ class SysConfig:
     k_fold: int = 3
     w4w_testsize: float = 0.2
     gap: int = 0
-    n_perm: int = 1000
-    perm_start_index=20
+    n_perm: int = 1   # Reduce to 1 perm for faster testing
+    perm_start_index=28
     perm_end_index=1
     init_capital = 100
-
-# Required cols
-REQ_COL = ['point_ret']

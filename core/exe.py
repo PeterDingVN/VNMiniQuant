@@ -4,9 +4,9 @@ from strategy_backtest import MonteCarlosPermutation, WalkForwardSplit, StatTest
 import numpy as np
 import pandas as pd
 from typing import Dict
-from config import EmaMacdCfg, SysConfig, REQ_COL
+from config import SysConfig, DonchianCfg
 
-from strategy import EmaMacdStrategy
+from strategy import Donchian
 
 
 class SystemExecute:
@@ -50,6 +50,7 @@ class SystemExecute:
         
 
         # W4W Training
+        print("START W4W TRAINING")
         pf_w4w_is = self._walkforward_train(strategy=self.strategy,  # --> Need update to generate permutation for miltipel assets a time
                                           insample=ins, 
                                           k_fold=self.cfg.k_fold, 
@@ -58,17 +59,20 @@ class SystemExecute:
 
 
         # MCPT Stat Test
+        print("START STAT TEST")
         pvalue = self._mcpt_stat_test(pf_original=pf_w4w_is, insample=ins)
 
 
         # OOS Finance Test
+        print(" ")
+        print("========= STRATEGY RESULT =========")
         oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
 
         # final report payload
         return f"""Strategy validity pval: {pvalue}
-Expected return MY STRAT: {oos_rep["strat_ret"]}
-Sharpe MY STRAT: {oos_rep["strat_sharpe"]}
-MDD MY STRAT: {oos_rep["strat_mdd"]}"""
+Return per year: {oos_rep["strat_ret"]}
+Sharpe: {oos_rep["strat_sharpe"]}
+MDD: {oos_rep["strat_mdd"]}"""
     
 
     # ------------------
@@ -93,13 +97,9 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
         for fold_df in folds:
             fold_df = fold_df.reset_index()
 
-            r = strategy.run(fold_df) # -->> Strategy return a dateset with cols
-            req_col = [c for c in r.columns if c in REQ_COL]
-
-            if len(req_col) != len(REQ_COL): 
-                raise ValueError(f"We need the following cols for SystemExecute: {REQ_COL}")
+            r = strategy.run(df_in=fold_df) # -->> Strategy return a dateset with cols
             
-            profit_factor = FinanceTest.profit_factor(ret=r['point_ret'])
+            profit_factor = FinanceTest.profit_factor(df_ = r, pos_col = 'position')
 
             pf_each_fold.append(profit_factor)
 
@@ -136,9 +136,9 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
         # Strategy Finance + Stat Test result
         perf = FinanceTest.fixed_capital_fp(o)
 
-        strat_ret_pct = perf['total_return']*100
+        strat_ret_pct = perf['return_per_year']
         sharpe = perf['sharpe']
-        mdd = perf['max_drawdown']*100
+        mdd = perf['max_drawdown']
 
         # buy&hold from log returns: exp(sum(log_ret))-1
         bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
@@ -153,5 +153,5 @@ MDD MY STRAT: {oos_rep["strat_mdd"]}"""
 # TEST CASE
 # CMD: python -m core.exe
 if __name__ == '__main__':
-    exe = SystemExecute(strategy=EmaMacdStrategy(config=EmaMacdCfg), config=SysConfig).execute("AGR")
+    exe = SystemExecute(strategy=Donchian(config=DonchianCfg.config), config=SysConfig).execute("VN30F1M")
     print(exe)
