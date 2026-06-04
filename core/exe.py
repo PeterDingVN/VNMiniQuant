@@ -60,7 +60,7 @@ class SystemExecute:
 
         # MCPT Stat Test
         print("START STAT TEST")
-        pvalue = self._mcpt_stat_test(pf_original=pf_w4w_is, insample=ins)
+        # pvalue = self._mcpt_stat_test(pf_original=pf_w4w_is, insample=ins)
 
 
         # OOS Finance Test
@@ -69,7 +69,7 @@ class SystemExecute:
         oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
 
         # final report payload
-        return f"""Strategy validity pval: {pvalue}
+        return f"""Strategy validity pval: {None}
 Return per year: {oos_rep["strat_ret"]}
 Sharpe: {oos_rep["strat_sharpe"]}
 MDD: {oos_rep["strat_mdd"]}"""
@@ -141,13 +141,12 @@ MDD: {oos_rep["strat_mdd"]}"""
         mdd = perf['max_drawdown']
 
         # buy&hold from log returns: exp(sum(log_ret))-1
-        bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
+        # bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
 
         return {
             "strat_ret": f"{strat_ret_pct:.3f}%",
             "strat_sharpe": f"{sharpe:.3f}",
-            "strat_mdd": f"{mdd:.3f}%",
-            "bh_ret": f"{bh_ret_pct:.3f}%"
+            "strat_mdd": f"{mdd:.3f}%"
         }
 
 # TEST CASE

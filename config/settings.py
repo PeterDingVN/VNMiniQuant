@@ -32,10 +32,22 @@ class AssetType:
 @dataclass
 class DonchianCfg:
     config = {
-        "trend_lb": 170,
-        "uptrend_min_slope": 0.1,
-        "downtrend_min_slope": -0.06,
-        "bb_lb": 20
+        "rl_period": 11,
+        "cl_period": 43,
+        "rl_smooth": 2,
+        "cl_smooth": 35,
+        "method": "linreg",
+        "lookback": 64,
+        "don_lb": 28,
+        "basis_lb": 31,
+        "long_basis": 1.47,
+        "short_basis": -0.765,
+        "trend_lb": 53,
+        "atr_lb": 44,
+        "bull_threshold": 0.005,
+        "bear_threshold": 0.015,
+        "smooth_lb": 17
+
     }
     
 

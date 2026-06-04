@@ -42,6 +42,8 @@ class FinanceTest:
     # -----------------------------------
     @ staticmethod
     def profit_factor(df_: pd.DataFrame, pos_col: str) -> float:
+        df_ = df_.copy()
+        df_.columns = [c.lower() for c in df_.columns]
 
         if pos_col not in df_:
             raise KeyError("Return to your strategy and add position column into data")
@@ -333,6 +335,9 @@ class FinanceTest:
         # 1. Prepare Data
         # -------------------------
         df = df_.copy()
+        df.columns = [c.lower() for c in df.columns]
+        if 'date' not in df.columns:
+            df = df.rename(columns={'datetime': 'date'})
 
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df = df.dropna(subset=["date", "close"]).sort_values("date").set_index("date")
@@ -400,6 +405,15 @@ class FinanceTest:
             "max_drawdown": float(-max_drawdown_pct * 100), # Return as negative
             "sharpe": float(sharpe),
         }
+    
+# cmd: python -m strategy_backtest.test.finance_perf.py
+if __name__ == '__main__':
+    df = pd.read_csv(
+        r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\DCL_pos_mcty.csv')
+    df['Datetime'] = pd.to_datetime(df['Datetime'])
+    df.columns = [c.lower() for c in df.columns]
+    res = FinanceTest.fixed_capital_fp(df_=df)
+    print(res)    
 
     
     
