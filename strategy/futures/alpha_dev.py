@@ -18,18 +18,24 @@ class Donchian:
     def run(self, df_in):
 
         data = df_in.copy()
-        data.columns = [c.capitalize() for c in data.columns] # Chuẩn hóa tên cột viết hóa chữ cái đầu
+        data.columns = [c.lower() for c in data.columns] # Chuẩn hóa tên cột viết hóa chữ cái đầu
+        data['datetime'] = pd.to_datetime(data['datetime'])
+
+        
+        vn30 = VN30().data
+        data = data.merge(vn30, on='datetime', how='left', suffixes=("", "_vn30"))
+        data['close_vn30'] = data['close_vn30'].fillna(data['close'])
+        
 
         pos_1 = DoubleCycleLines(config=self.params).run(data)
         pos_2 = TrendFollow(config=self.params).run(data)
-        print(len(pos_1), len(pos_2))
+
         pos = pos_1 + pos_2
         
         data['position'] = np.where(pos>=1, 1, np.where(pos<=-1, -1, pos))
-       
 
 
-        return data[['Datetime','Open', 'High', 'Low', 'Close', 'position']]
+        return data[['datetime','open', 'high', 'low', 'close', 'position']]
 
 
 class VN30:
@@ -92,18 +98,12 @@ class DoubleCycleLines:
 
         # Pos generation
         pos_short = np.where(df["rl_peak"] | df["rl_cross_dn"], -1, 0)
-        pos_long = np.where(df["cl_trough"], 1, 0)
-        
-        
-        # pos_short = np.where(df["rl_peak"], -1, 0)
-        # pos_long = np.where(df["rl_trough"]| df["rl_cross_up"], 1, 0)
-        
+        pos_long = np.where(df["rl_trough"], 1, 0)
         pos = pos_short + pos_long
         
         pos = pd.Series(pos).replace(0, np.nan)
         pos = pos.ffill().fillna(0)
         pos = np.where(pos>=1, 1, np.where(pos<=-1, -1, pos))
-        pos = pd.Series(pos).fillna(0)
     
     
         return pos
@@ -253,7 +253,7 @@ def _linreg_slope_pct(series: pd.Series, period: int) -> pd.Series:
     
     This directly implements the "Regression Line" (hồi quy xu hướng) concept:
     it measures how fast price is rising or falling in percentage terms,
-    based on a least-squares fit over the last `period` bars.
+    based on a least-squares fit over the last period bars.
     
     Returns values oscillating around 0:
       >0 : price trending up
@@ -353,11 +353,6 @@ class TrendFollow:
 
         
         df.columns = [c.lower() for c in df.columns]
-        
-
-        vn30 = VN30().data
-        df = df.merge(vn30, on='datetime', how='left', suffixes=("", "_vn30"))
-
         df = df.rename(columns={'datetime': 'date'})
         
         # 1. Standard Donchian Channels
@@ -482,110 +477,3 @@ class RegimeDetector:
         trend_state = (is_bull | is_bear).astype(int)
 
         return trend_state.to_numpy()
-
-
-class MFI_MACD:
-
-
-    def __init__(self, config=None):
-        self.config = config
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _ema(series: pd.Series, period: int) -> pd.Series:
-        return series.ewm(span=period, adjust=False).mean()
-
-    @staticmethod
-    def _sma(series: pd.Series, period: int) -> pd.Series:
-        return series.rolling(window=period).mean()
-
-    def _ma(self, series: pd.Series, period: int, ma_type: str) -> pd.Series:
-        if ma_type.upper() == "EMA":
-            return self._ema(series, period)
-        elif ma_type.upper() == "SMA":
-            return self._sma(series, period)
-        else:
-            raise ValueError(f"Unknown MA type: {ma_type!r}. Use 'EMA' or 'SMA'.")
-
-    @staticmethod
-    def _mfi(high: pd.Series, low: pd.Series, close: pd.Series,
-             volume: pd.Series, period: int) -> pd.Series:
-        """
-        Money Flow Index (mirrors ta.mfi(hlc3, period) in Pine Script).
-        Pine's ta.mfi uses hlc3 as the typical price, same as standard MFI.
-        """
-        mfi = ta.mfi(high=high, low=low, close=close, volume=volume, length=period)
-     
-        return mfi
-
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
-
-    def run(self, df_in: pd.DataFrame) -> pd.DataFrame:
-        """
-        Parameters
-        ----------
-        df_in : pd.DataFrame
-            Must contain columns: open, high, low, close, volume
-            (case-insensitive).
-
-        Returns
-        -------
-        pd.DataFrame with columns:
-            macd, signal, hist
-        """
-        df = df_in.copy()
-        df.columns = [c.lower() for c in df.columns]
-
-        cfg = self.config
-        rsi_len    = cfg["rsi_len"]
-        fast_len   = cfg["fast_len"]
-        slow_len   = cfg["slow_len"]
-        signal_len = cfg["signal_len"]
-        osc_type   = cfg["osc_type"]
-        sig_type   = cfg["sig_type"]
-
-        # Step 1 – MFI (Pine: ta.mfi(hlc3, rsi_lb))
-        source = self._mfi(df["high"], df["low"], df["close"], df["volume"], rsi_len)
-
-        # Step 2 – Fast / slow MAs on the MFI series
-        ma_fast = self._ma(source, fast_len, osc_type)
-        ma_slow = self._ma(source, slow_len, osc_type)
-
-        # Step 3 – MACD line, signal, histogram
-        macd   = ma_fast - ma_slow
-        signal = self._ma(macd, signal_len, sig_type)
-        hist   = macd - signal
-
-
-                # MACD crossover strategy
-
-        long_signal = (
-            (macd > signal) &
-            (macd.shift(1) <= signal.shift(1))
-        )
-
-        short_signal = (
-            (macd < signal) &
-            (macd.shift(1) >= signal.shift(1))
-        )
-
-        state = 0.0
-        position = np.zeros(len(df))
-
-        for i in range(len(df)):
-            if long_signal.iloc[i]:
-                state = 1.0
-            elif short_signal.iloc[i]:
-                state = -1.0
-
-            position[i] = state
-
-        df['position'] = np.where(position==0, np.nan, position)
-        df['position'] = df['position'].ffill().fillna(0)
-
-        return df['position']

@@ -94,7 +94,7 @@ class FinanceTest:
     #     # -------------------------
     #     # Position and price movement
     #     # -------------------------
-    #     pos_held = df["position"].shift(1).fillna(0.0)
+    #     pos_held = df[pos_col].shift(1).fillna(0.0)
     #     price_diff = df["close"].diff().fillna(0.0)
 
     #     # -------------------------
@@ -106,7 +106,7 @@ class FinanceTest:
 
     #         cost_arr = TransactionCost(
     #             cost_rate=cost_rate
-    #         ).transaction_cost_arr(df["position"])
+    #         ).transaction_cost_arr(df[pos_col])
 
     #         gains_after_fee = (
     #             price_diff * pos_held
@@ -119,7 +119,7 @@ class FinanceTest:
 
     #         cost_arr = TransactionCost(
     #             cost_rate=cost_rate
-    #         ).transaction_cost_arr(df["position"])
+    #         ).transaction_cost_arr(df[pos_col])
 
     #         proportional_cost = (
     #             cost_arr * df["close"]
@@ -248,7 +248,7 @@ class FinanceTest:
     #         # -------------------------
     #         # Position and price movement
     #         # -------------------------
-    #         pos_held = df["position"].shift(1).fillna(0.0)
+    #         pos_held = df[pos_col].shift(1).fillna(0.0)
     #         price_diff = df["close"].diff().fillna(0.0)
 
     #         # -------------------------
@@ -257,11 +257,11 @@ class FinanceTest:
     #         # (Assuming AssetType and TransactionCost classes are defined elsewhere)
     #         if asset_type == "future":
     #             cost_rate = AssetType.cost_type["future"]
-    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
     #             gains_after_fee = (price_diff * pos_held) - cost_arr
     #         elif asset_type == "stock":
     #             cost_rate = AssetType.cost_type["stock"]
-    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
     #             proportional_cost = cost_arr * df["close"]
     #             gains_after_fee = (price_diff * pos_held) - proportional_cost
     #         else:
@@ -342,6 +342,7 @@ class FinanceTest:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df = df.dropna(subset=["date", "close"]).sort_values("date").set_index("date")
 
+
         # -------------------------
         # 2. Define Static Capital (Harmonizer)
         # -------------------------
@@ -352,16 +353,19 @@ class FinanceTest:
         # -------------------------
         # 3. Calculate PnL (Dollar Gains)
         # -------------------------
-        pos_held = df["position"].shift(1).fillna(0.0)
+        pos_col = 'position'
+        pos_held = df[pos_col].shift(1).fillna(0.0)
         price_diff = df["close"].diff().fillna(0.0)
 
+        
         if asset_type == "future":
             cost_rate = AssetType.cost_type["future"]
-            cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+            cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
             gains_after_fee = (price_diff * pos_held) - cost_arr
+
         else:
             cost_rate = AssetType.cost_type["stock"]
-            cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df["position"])
+            cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
             gains_after_fee = (price_diff * pos_held) - (cost_arr * df["close"])
 
         # Resample to Daily (D) to get the daily PnL stream
@@ -406,12 +410,13 @@ class FinanceTest:
             "sharpe": float(sharpe),
         }
     
-# cmd: python -m strategy_backtest.test.finance_perf.py
+# cmd: python -m strategy_backtest.test.finance_perf
 if __name__ == '__main__':
     df = pd.read_csv(
-        r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\DCL_pos_mcty.csv')
-    df['Datetime'] = pd.to_datetime(df['Datetime'])
+        r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\local_pos.csv')
+    
     df.columns = [c.lower() for c in df.columns]
+    df['datetime'] = pd.to_datetime(df['datetime'], format="%d/%m/%Y %H:%M")
     res = FinanceTest.fixed_capital_fp(df_=df)
     print(res)    
 

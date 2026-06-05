@@ -8,6 +8,8 @@ from config import SysConfig, DonchianCfg
 
 from strategy import Donchian
 
+from strategy_backtest import BacktestEngine
+
 
 class SystemExecute:
 
@@ -66,13 +68,13 @@ class SystemExecute:
         # OOS Finance Test
         print(" ")
         print("========= STRATEGY RESULT =========")
-        oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=oos)
+        oos_rep = self._oos_finance_test(strategy=self.strategy, outsample=data_stock)
 
-        # final report payload
-        return f"""Strategy validity pval: {None}
-Return per year: {oos_rep["strat_ret"]}
-Sharpe: {oos_rep["strat_sharpe"]}
-MDD: {oos_rep["strat_mdd"]}"""
+#         # final report payload
+#         return f"""Strategy validity pval: {None}
+# Return per year: {oos_rep["strat_ret"]}
+# Sharpe: {oos_rep["strat_sharpe"]}
+# MDD: {oos_rep["strat_mdd"]}"""
     
 
     # ------------------
@@ -134,20 +136,24 @@ MDD: {oos_rep["strat_mdd"]}"""
         o = strategy.run(outsample).reset_index()
 
         # Strategy Finance + Stat Test result
-        perf = FinanceTest.fixed_capital_fp(o)
+        # perf = FinanceTest.fixed_capital_fp(o)
+        o = o.set_index('datetime')
+        perf = BacktestEngine(Datetime=o.index, Position=o['position'], Close=o['close'])
+        perf.metrics()
 
-        strat_ret_pct = perf['return_per_year']
-        sharpe = perf['sharpe']
-        mdd = perf['max_drawdown']
+        # strat_ret_pct = perf['return_per_year']
+        # sharpe = perf['sharpe']
+        # mdd = perf['max_drawdown']
 
-        # buy&hold from log returns: exp(sum(log_ret))-1
-        # bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
+        # # buy&hold from log returns: exp(sum(log_ret))-1
+        # # bh_ret_pct = ((o['close'].iloc[-1] - o['close'].iloc[0])/ o['close'].iloc[0]) * 100
 
-        return {
-            "strat_ret": f"{strat_ret_pct:.3f}%",
-            "strat_sharpe": f"{sharpe:.3f}",
-            "strat_mdd": f"{mdd:.3f}%"
-        }
+        # return {
+        #     "strat_ret": f"{strat_ret_pct:.3f}%",
+        #     "strat_sharpe": f"{sharpe:.3f}",
+        #     "strat_mdd": f"{mdd:.3f}%"
+        # }
+        
 
 # TEST CASE
 # CMD: python -m core.exe
