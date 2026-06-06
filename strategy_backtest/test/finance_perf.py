@@ -63,263 +63,6 @@ class FinanceTest:
     # # -----------------------
     # # Reports
     # # ------------------------
-    @staticmethod
-    # def fixed_capital_fp(
-    #         df_: pd.DataFrame,
-    #         asset_type: str = "future",
-    #         risk_free_annual: float = RISK_FREE_RATE,
-    #         trade_period: int = TRADE_PERIOD
-    #         ):
-       
-
-    #     # -------------------------
-    #     # Validate data and set index
-    #     # -------------------------
-    #     df = df_.copy()
-
-    #     required_cols = ["time", "close", "position"]
-    #     if not all(c in df.columns for c in required_cols):
-    #         raise KeyError(f"Missing columns. Required: {required_cols}")
-
-    #     df["time"] = pd.to_datetime(df["time"], errors="coerce")
-
-    #     df = (
-    #         df.dropna(subset=["time"])
-    #         .sort_values("time")
-    #         .set_index("time")
-    #     )
-
-    #     df = df.dropna(subset=["close"])
-
-    #     # -------------------------
-    #     # Position and price movement
-    #     # -------------------------
-    #     pos_held = df[pos_col].shift(1).fillna(0.0)
-    #     price_diff = df["close"].diff().fillna(0.0)
-
-    #     # -------------------------
-    #     # Transaction cost
-    #     # -------------------------
-    #     if asset_type == "future":
-
-    #         cost_rate = AssetType.cost_type["future"]
-
-    #         cost_arr = TransactionCost(
-    #             cost_rate=cost_rate
-    #         ).transaction_cost_arr(df[pos_col])
-
-    #         gains_after_fee = (
-    #             price_diff * pos_held
-    #             - cost_arr
-    #         )
-
-    #     elif asset_type == "stock":
-
-    #         cost_rate = AssetType.cost_type["stock"]
-
-    #         cost_arr = TransactionCost(
-    #             cost_rate=cost_rate
-    #         ).transaction_cost_arr(df[pos_col])
-
-    #         proportional_cost = (
-    #             cost_arr * df["close"]
-    #         )
-
-    #         gains_after_fee = (
-    #             price_diff * pos_held
-    #             - proportional_cost
-    #         )
-
-    #     else:
-    #         raise ValueError(
-    #             "asset_type must be 'future' or 'stock'"
-    #         )
-
-    #     # -------------------------
-    #     # DAILY PNL
-    #     # -------------------------
-    #     daily_pnl = (
-    #         gains_after_fee
-    #         .resample("D")
-    #         .sum(min_count=1)
-    #         .dropna()
-    #     )
-
-    #     # cumulative pnl curve
-    #     pnl_curve = daily_pnl.cumsum()
-
-
-
-    #     yearly_max_close = df["close"].cummax()
-
-    #     yearly_max_close_daily = (
-    #         yearly_max_close
-    #         .resample("D")
-    #         .last()
-    #         .reindex(pnl_curve.index)
-    #         .replace(0, np.nan)
-    #         .ffill()
-    #     )
-
-    #     # normalize pnl curve by yearly max close
-
-    #     equity_curve = (
-    #         pnl_curve / yearly_max_close_daily
-    #     ).replace([np.inf, -np.inf], np.nan).ffill()
-
-    #     # -------------------------
-    #     # 1. TOTAL RETURN
-    #     # -------------------------
-    #     n_years = max(len(daily_pnl) / trade_period, 1e-9)
-    #     total_return = equity_curve.iloc[-1] / n_years
-
-    #     # -------------------------
-    #     # MAX DRAWDOWN
-    #     # -------------------------
-    #     rolling_peak = equity_curve.cummax()
-    #     drawdown = equity_curve - rolling_peak
-    #     max_drawdown = drawdown.min()
-
-
-    #     # -------------------------
-    #     # SHARPE
-    #     # -------------------------
-    #     rf_daily = (
-    #         (1.0 + risk_free_annual)
-    #         ** (1.0 / trade_period)
-    #         - 1.0
-    #     )
-
-    #     excess_ret = (
-    #         daily_pnl - rf_daily
-    #     )
-
-    #     vol = excess_ret.std(ddof=1)
-
-    #     sharpe = (
-    #         np.nan
-    #         if (vol == 0 or np.isnan(vol))
-    #         else (
-    #             excess_ret.mean()
-    #             / vol
-    #             * np.sqrt(trade_period)
-    #         )
-    #     )
-
-    #     return {
-    #         "return_per_year": float(total_return * 100),
-    #         "max_drawdown": float(max_drawdown * 100),
-    #         "sharpe": float(sharpe),
-    #     }
-
-
-
-    # @staticmethod
-    # def fixed_capital_fp(
-    #             df_: pd.DataFrame,
-    #             asset_type: str = "future",
-    #             risk_free_annual: float = 0.02, # Example
-    #             trade_period: int = 252
-    #             ):
-            
-    #         # -------------------------
-    #         # Validate data and set index
-    #         # -------------------------
-    #         df = df_.copy()
-    #         required_cols = ["time", "close", "position"]
-    #         if not all(c in df.columns for c in required_cols):
-    #             raise KeyError(f"Missing columns. Required: {required_cols}")
-
-    #         df["time"] = pd.to_datetime(df["time"], errors="coerce")
-    #         df = (
-    #             df.dropna(subset=["time"])
-    #             .sort_values("time")
-    #             .set_index("time")
-    #         )
-    #         df = df.dropna(subset=["close"])
-
-    #         # -------------------------
-    #         # 1. ESTABLISH STATIC CAPITAL
-    #         # -------------------------
-    #         # To "force" returns down and MDD to be more realistic, 
-    #         # we use the starting price as the constant capital base.
-    #         initial_capital = df["close"].iloc[0]
-
-    #         # -------------------------
-    #         # Position and price movement
-    #         # -------------------------
-    #         pos_held = df[pos_col].shift(1).fillna(0.0)
-    #         price_diff = df["close"].diff().fillna(0.0)
-
-    #         # -------------------------
-    #         # Transaction cost
-    #         # -------------------------
-    #         # (Assuming AssetType and TransactionCost classes are defined elsewhere)
-    #         if asset_type == "future":
-    #             cost_rate = AssetType.cost_type["future"]
-    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
-    #             gains_after_fee = (price_diff * pos_held) - cost_arr
-    #         elif asset_type == "stock":
-    #             cost_rate = AssetType.cost_type["stock"]
-    #             cost_arr = TransactionCost(cost_rate=cost_rate).transaction_cost_arr(df[pos_col])
-    #             proportional_cost = cost_arr * df["close"]
-    #             gains_after_fee = (price_diff * pos_held) - proportional_cost
-    #         else:
-    #             raise ValueError("asset_type must be 'future' or 'stock'")
-
-    #         # -------------------------
-    #         # DAILY PNL (Percentage)
-    #         # -------------------------
-    #         # We convert dollar gains to percentage returns relative to STATIC capital
-    #         # This is the crucial step to fix Sharpe and Return scale.
-    #         daily_pnl_dollars = (
-    #             gains_after_fee
-    #             .resample("D")
-    #             .sum(min_count=1)
-    #             .dropna()
-    #         )
-            
-    #         # Convert to percentage returns
-    #         daily_ret_pct = daily_pnl_dollars / initial_capital
-
-    #         # Cumulative equity curve (Arithmetic for fixed capital)
-    #         equity_curve = daily_pnl_dollars.cumsum() / initial_capital
-
-    #         # -------------------------
-    #         # 1. TOTAL RETURN (Annualized)
-    #         # -------------------------
-    #         n_years = max(len(daily_pnl_dollars) / trade_period, 1e-9)
-    #         total_return = equity_curve.iloc[-1] / n_years
-
-    #         # -------------------------
-    #         # 2. MAX DRAWDOWN
-    #         # -------------------------
-    #         # MDD must be calculated on the cumulative percentage curve
-    #         rolling_peak = equity_curve.cummax()
-    #         drawdown = equity_curve - rolling_peak
-    #         max_drawdown = drawdown.min()
-
-    #         # -------------------------
-    #         # 3. SHARPE (Unit Corrected)
-    #         # -------------------------
-    #         # Original code subtracted a % rate from a $ gain. 
-    #         # Now both are in percentage decimals.
-    #         rf_daily = (1.0 + risk_free_annual) ** (1.0 / trade_period) - 1.0
-            
-    #         excess_ret = daily_ret_pct - rf_daily
-    #         vol = excess_ret.std(ddof=1)
-
-    #         sharpe = (
-    #             np.nan
-    #             if (vol == 0 or np.isnan(vol))
-    #             else (excess_ret.mean() / vol * np.sqrt(trade_period))
-    #         )
-
-    #         return {
-    #             "return_per_year": float(total_return * 100),
-    #             "max_drawdown": float(max_drawdown * 100),
-    #             "sharpe": float(sharpe),
-    #         }
     
 
 
@@ -369,7 +112,7 @@ class FinanceTest:
             gains_after_fee = (price_diff * pos_held) - (cost_arr * df["close"])
 
         # Resample to Daily (D) to get the daily PnL stream
-        daily_pnl_dollars = gains_after_fee.resample("D").sum()
+        daily_pnl_dollars = gains_after_fee.resample("D").sum(min_count=1).dropna()
         pnl_curve_dollars = daily_pnl_dollars.cumsum()
 
         # -------------------------
@@ -377,7 +120,7 @@ class FinanceTest:
         # -------------------------
         # Using calendar days for n_years is more accurate for "D" resampled data
         total_days = (df.index[-1] - df.index[0]).days
-        n_years = max(total_days / 365, 1e-9)
+        n_years = max(total_days / 252, 1e-9)
 
         # -------------------------
         # 5. Harmonized Metrics
@@ -409,14 +152,17 @@ class FinanceTest:
             "max_drawdown": float(-max_drawdown_pct * 100), # Return as negative
             "sharpe": float(sharpe),
         }
-    
+ 
 # cmd: python -m strategy_backtest.test.finance_perf
 if __name__ == '__main__':
     df = pd.read_csv(
-        r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\local_pos.csv')
+        r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\cty_pó.csv')
     
     df.columns = [c.lower() for c in df.columns]
-    df['datetime'] = pd.to_datetime(df['datetime'], format="%d/%m/%Y %H:%M")
+    try:
+        df['datetime'] = pd.to_datetime(df['datetime'], format="%d/%m/%Y %H:%M")
+    except ValueError:
+        df['datetime'] = pd.to_datetime(df['datetime'])
     res = FinanceTest.fixed_capital_fp(df_=df)
     print(res)    
 
