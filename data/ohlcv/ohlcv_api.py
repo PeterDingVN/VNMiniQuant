@@ -105,17 +105,19 @@ class _ValidateInputParams:
         symbol must be available
     """
 
-    def __init__(self, symbols: List[str], timeframe: Union[str, List[str]], time_start: str, time_end: str):
+    def __init__(self, symbols: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str):
         
-    
-        self.symbols = symbols
+        if isinstance(symbols, str):
+            self.symbols = [symbols]
+        elif isinstance(symbols, list):
+            self.symbols = symbols
         self.time_start = time_start
         self.time_end = time_end
 
         # Validate timeframe and symbol
         if isinstance(timeframe, str):
-            self.timeframes = [timeframe] * len(symbols)
-        elif isinstance(timeframe, list) and len(timeframe)==len(symbols):
+            self.timeframes = [timeframe] * len(self.symbols)
+        elif isinstance(timeframe, list) and len(timeframe)==len(self.symbols):
             self.timeframes = timeframe
         else:
             raise InputError('Must provide only 1 or same number of timeframe as number of symbol')
@@ -214,10 +216,10 @@ class _ValidateInputParams:
             dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
 
         except ValueError as e:
-            raise ValueError(
+            raise InputError(
                 f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
         if dt_start >= dt_end:
-            raise ValueError("time_start must be earlier than time_end")
+            raise InputError("time_start must be earlier than time_end")
 
         return int(dt_start.timestamp()), int(dt_end.timestamp())
 
@@ -605,7 +607,7 @@ class _OhlcvSingleLoader:
 class OhlcvGenerator:
 
     def __init__(self, 
-                 symbols: List[str], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
+                 symbols: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
                  save_data: bool = True, update_data: bool=False,
                  max_workers: int = 5):
         """
@@ -637,21 +639,25 @@ class OhlcvGenerator:
         validator = _ValidateInputParams(symbols, tf_input, time_start, time_end)
 
         self.symbol_configs = validator.symbol_configs
+
         # Backwards-compatible exposures: return scalar when all entries identical
         if len(set(validator.timeframes)) == 1:
             self.timeframe = validator.timeframes[0]
         else:
             self.timeframe = validator.timeframes
 
+
         if len(set(validator.base_intervals)) == 1:
             self.base_interval = validator.base_intervals[0]
         else:
             self.base_interval = validator.base_intervals
 
+
         if len(set(validator.requires_resampling_flags)) == 1:
             self.requires_resampling = validator.requires_resampling_flags[0]
         else:
             self.requires_resampling = validator.requires_resampling_flags
+
 
         self.cache_dir = os.path.join(
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
@@ -759,8 +765,8 @@ class OhlcvGenerator:
 if __name__ == "__main__":
     # Demo: fetch mixed symbols with caching and resampling
     generator = OhlcvGenerator(
-        symbols=["US:CTS", 'VN:CTS', 'ETHUSDT'],
-        timeframe=['4h', '13m', '16H'],
+        symbols="VN:AGR",
+        timeframe='30m',
         time_start="2025-10-01 00:00:00",
         # time_end="2026-06-14 00:00:00",
         save_data=True,
