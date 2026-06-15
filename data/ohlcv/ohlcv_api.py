@@ -1,0 +1,699 @@
+import os
+from pathlib import Path
+import re
+import time
+import random
+import json
+import urllib3
+from typing import Dict, List, Tuple, Optional, Any, Union
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+YELLOW = "\033[93m"
+RED = "\033[91m"
+GREEN = "\033[92m"
+PURPLE = "\033[95m"
+RESET = "\033[0m"
+
+
+# =========== Helper class ===============
+class InputError(Exception):
+    pass
+
+class RobustSession:
+    """
+        Auto retry when error 429, 500, 502, 503, 504 is thrown
+        Return: new session, max is 4 before raising error
+    """
+    @staticmethod
+    def _create_robust_session(retries: int = 4, backoff_factor: float = 1) -> requests.Session:
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=retries,
+            read=retries,
+            connect=retries,
+            backoff_factor=backoff_factor,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=5, pool_maxsize=16)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+        return session
+
+
+
+
+# ============== Component 1: Input validation and configuration mapper =================
+class _ValidateInputParams:
+    """
+    Validate if input params are format-wise and logic-wise correct
+
+    Returns:
+        Validated input, if not meet req -> raise error
+
+    Req:
+        timeframe must be int + d/m/h
+        datetime must be yyyy-mm-dd h:m:s
+        symbol must be available
+    """
+
+    # Native intervals
+    NATIVE_MINUTE_INTERVALS = {1, 3, 5, 15, 30, 45}
+    NATIVE_HOUR_INTERVALS = {1, 2, 4, 6, 8, 12}
+    NATIVE_DAY_INTERVALS = {1}
+
+    def __init__(self, symbols: List[str], timeframe: str, time_start: str, time_end: str):
+        self.symbols = symbols
+        self.timeframe = timeframe
+        self.time_start = time_start
+        self.time_end = time_end
+
+        # Validate timeframe syntax
+        self._validate_timeframe()
+
+        # Determine timeframe base interval + resampling if needed
+        self.base_interval, self.requires_resampling = self._compute_base_interval()
+
+        # Convert timestamps to seconds and milliseconds precision
+        self.start_ts_sec, self.end_ts_sec = self._to_unix_seconds(time_start, time_end)
+        self.start_ts_ms = self.start_ts_sec * 1000
+        self.end_ts_ms = self.end_ts_sec * 1000
+
+        # For each symbol: routing, prefixed overrides, warnings
+        self.symbol_configs = []
+        for sym in symbols:
+            provider, clean_symbol = self._route_symbol(sym)
+            self._print_intraday_warning(provider, clean_symbol, timeframe)
+            self.symbol_configs.append({
+                "original_symbol": sym,
+                "symbol": clean_symbol,
+                "provider": provider,
+                "base_interval": self.base_interval,
+                "requires_resampling": self.requires_resampling,
+                "target_interval": timeframe,
+                "start_ts_sec": self.start_ts_sec,
+                "end_ts_sec": self.end_ts_sec,
+                "start_ts_ms": self.start_ts_ms,
+                "end_ts_ms": self.end_ts_ms,
+            })
+
+    
+
+    def _validate_timeframe(self) -> None:
+        pattern = r"^\d+[dmh]$"
+        if not re.match(pattern, self.timeframe):
+            raise ValueError(
+                f"Invalid timeframe format: '{self.timeframe}'. Expected pattern: "
+                f"positive integer followed by 'd' (days), 'm' (minutes), or 'h' (hours). "
+                f"Examples: '1d', '15m', '4h'."
+            )
+
+    def _compute_base_interval(self) -> Tuple[str, bool]:
+        val = int(self.timeframe[:-1])
+        unit = self.timeframe[-1]
+
+        if unit == 'm':
+            if val in self.NATIVE_MINUTE_INTERVALS:
+                return f"{val}m", False
+            if val % 30 == 0:
+                return "30m", True
+            if val % 15 == 0:
+                return "15m", True
+            if val % 5 == 0:
+                return "5m", True
+            return "1m", True
+        
+        elif unit == 'h':
+            if val in self.NATIVE_HOUR_INTERVALS:
+                return f"{val}h", False
+            if val % 12 == 0:
+                return "12h", True
+            if val % 6 == 0:
+                return "6h", True
+            if val % 2 == 0:
+                return "2h", True
+            return "1h", True
+        
+        else:  
+            if val == 1:
+                return "1d", False
+            return "1d", True
+
+    def _to_unix_seconds(self, time_start: str, time_end: str) -> Tuple[int, int]:
+        try:
+            vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+            dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+            dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+
+        except ValueError as e:
+            raise ValueError(
+                f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
+        if dt_start >= dt_end:
+            raise ValueError("time_start must be earlier than time_end")
+
+        return int(dt_start.timestamp()), int(dt_end.timestamp())
+
+    def _route_symbol(self, symbol: str) -> Tuple[str, str]:
+        symbol_upper = symbol.upper()
+
+        # Vietnam stock 
+        if symbol_upper.startswith("VN:"): 
+            return "vietstock", symbol_upper[3:]
+        
+        # US stock
+        if symbol_upper.startswith("US:"):
+            return "investing", symbol_upper[3:]
+        
+        # Crypto
+        crypto_suffixes = ("USDT", "USDC", "BUSD", "BTC", "ETH")
+        if symbol_upper.startswith("CP:"):  
+            return "binance", symbol_upper[3:]
+        elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
+            return "binance", symbol_upper
+
+        raise InputError(f'Asset {symbol} does not exist. Please specify VN:, US: for stock data.')
+
+
+    def _print_intraday_warning(self, provider: str, symbol: str, timeframe: str) -> None:
+        unit = timeframe[-1]
+        is_intraday = (unit == 'm' or unit == 'h')
+        if not is_intraday:
+            return
+        if provider == "investing":
+            print(f"{YELLOW}[WARNING] Investing.com intraday data for {symbol} might be "
+                  f"available only since June 2020. Please double check before use!{RESET}")
+        elif provider == "vietstock":
+            print(f"{YELLOW}[WARNING] Vietstock intraday data for {symbol} might be "
+                  f"available since mid-2025 only. Please double check before use!{RESET}")
+
+
+
+
+# ================ Component 2: Single symbol loader (extraction worker) =====================
+class _OhlcvSingleLoader:
+    
+    # Provider‑specific max candles per request
+    MAX_LIMITS = {
+        "binance": 1000,
+        "vietstock": 1000,  
+        "investing": 1000,  
+    }
+
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.session = RobustSession._create_robust_session()
+        self.headers = {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
+                    'Connection': 'keep-alive',
+                    'Origin': 'https://stockchart.vietstock.vn',
+                    'Referer': 'https://stockchart.vietstock.vn/',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-site',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+                    'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"'
+                    }
+
+    def fetch(self) -> Union[pd.DataFrame, Tuple[str, bool, str, str]]:
+
+        provider = self.config["provider"]
+        try:
+            if provider == "binance":
+                df = self._fetch_binance()
+            elif provider == "vietstock":
+                df = self._fetch_vietstock()
+            elif provider == "investing":
+                df = self._fetch_investing()
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
+
+            if df.empty:
+                raise ValueError("Fetched data is empty")
+
+
+            df = self._standardize_dataframe(df)
+            if self.config["requires_resampling"]:
+                df = self._resample_dataframe(df)
+
+            return df
+
+        except Exception as e:
+            error_name = type(e).__name__
+            error_msg = str(e)
+            return (self.config["original_symbol"], False, error_name, error_msg)
+
+    
+    # =================== Fetch Binance ======================
+    def _fetch_binance(self) -> pd.DataFrame:
+
+        symbol = self.config["symbol"]
+        base_interval = self.config["base_interval"]
+        start_ms = self.config["start_ts_ms"]
+        end_ms = self.config["end_ts_ms"]
+
+        url = "https://www.binance.com/api/v3/uiKlines"
+
+        all_candles = []
+        current_start = start_ms
+
+        while current_start < end_ms:
+            params = {
+                "symbol": symbol,
+                "interval": base_interval,
+                "startTime": current_start,
+                "endTime": end_ms,
+                "limit": self.MAX_LIMITS["binance"]
+            }
+            resp = self.session.get(url,params=params,timeout=70)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if not data:
+                break
+
+            for candle in data:
+                open_time = candle[0]
+                if open_time > end_ms:
+                    break
+
+                all_candles.append({
+                    "datetime": open_time,
+                    "open": float(candle[1]),
+                    "high": float(candle[2]),
+                    "low": float(candle[3]),
+                    "close": float(candle[4]),
+                    "volume": float(candle[5]),
+                })
+
+            if data[-1][0] >= end_ms:
+                break
+
+            next_start = data[-1][6] + 1
+            if next_start <= current_start:
+                break
+            current_start = next_start
+
+            if len(data) < self.MAX_LIMITS["binance"]:
+                break
+
+            time.sleep(0.2)
+
+        df = pd.DataFrame(all_candles)
+        if not df.empty:
+            df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
+
+            df = (
+                df
+                .drop_duplicates(subset="datetime")
+                .sort_values("datetime")
+                .reset_index(drop=True)
+            )
+
+        return df
+
+
+    # ============ Fetch Vietstock ===================
+    def _fetch_vietstock(self) -> pd.DataFrame:
+
+        symbol = self.config["symbol"]
+        base_interval = self.config["base_interval"]
+        start_sec = int(self.config["start_ts_sec"])
+        end_sec = int(self.config["end_ts_sec"])
+        resolution_map = {"1m": "1",
+                        "2m": "2",
+                        "5m": "5",
+                        "15m": "15",
+                        "30m": "30",
+                        "45m": "45",
+                        
+                        "1h": "60",
+                        "2h": "120",
+                        "3h": "180",
+                        "4h": "240",
+
+                        "1d": "1D"
+                        }
+        resolution = resolution_map.get(base_interval)
+
+        if resolution is None:
+            raise ValueError(f"Vietstock does not support base interval {base_interval}")
+        
+        url = "https://api.vietstock.vn/tvnew/history"
+        all_candles = []
+        current_start = start_sec
+
+        while current_start < end_sec:
+
+            params = {
+                "symbol": symbol,
+                "resolution": resolution,
+                "from": current_start,
+                "to": end_sec,
+            }
+            
+            resp = self.session.get(url, params=params, headers=self.headers, timeout=70)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if not data:
+                break
+            if data.get("s") != "ok":
+                break
+            timestamps = data.get("t", [])
+            if not timestamps:
+                break
+
+            opens = data.get("o", [])
+            highs = data.get("h", [])
+            lows = data.get("l", [])
+            closes = data.get("c", [])
+            volumes = data.get("v", [])
+
+            for i, ts in enumerate(timestamps):
+                if ts > end_sec:
+                    break
+
+                all_candles.append({
+                    "datetime": ts,
+                    "open": float(opens[i]),
+                    "high": float(highs[i]),
+                    "low": float(lows[i]),
+                    "close": float(closes[i]),
+                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+                })
+
+            
+            if timestamps[-1] >= end_sec:
+                break
+        
+            next_start = timestamps[-1] + 1
+            if next_start <= current_start:
+                break
+            current_start = next_start
+
+            time.sleep(0.2)
+
+        df = pd.DataFrame(all_candles)
+        if not df.empty:
+            df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+            df = (df
+                .drop_duplicates(subset="datetime")
+                .sort_values("datetime")
+                .reset_index(drop=True))
+            
+        return df
+    
+
+
+    # ===================== Fetch Investing ======================
+    def _fetch_investing(self) -> pd.DataFrame:
+
+        symbol = self.config["symbol"]
+        base_interval = self.config["base_interval"]
+        start_sec = self.config["start_ts_sec"]
+        end_sec = self.config["end_ts_sec"]
+
+        res_map = {"5m": "5", "15m": "15", "30m": "30",
+                    "1h": "60", "4h": "240",
+                    "1d": "D"}
+        if base_interval not in res_map:
+            raise ValueError(f"Investing does not support base interval {base_interval}")
+
+        resolution = res_map[base_interval]
+
+
+        url = "https://tvc4.investing.com/127911700fc4e5afa1929fb2ab34b234/1781436887/1/1/8/history"
+        all_candles = []
+        current_start = start_sec
+
+        while current_start < end_sec:
+            params = {
+                "symbol": symbol,
+                "resolution": resolution,
+                "from": current_start,
+                "to": end_sec
+            }
+            resp = self.session.get(url, params=params, timeout=70)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("s") != "ok":
+                break
+
+            timestamps = data.get("t", [])
+
+            if not timestamps:
+                break
+
+            opens = data.get("o", [])
+            highs = data.get("h", [])
+            lows = data.get("l", [])
+            closes = data.get("c", [])
+            volumes = data.get("v", [])
+
+            for i, ts in enumerate(timestamps):
+
+                if ts > end_sec:
+                    break
+
+                all_candles.append({
+                    "datetime": ts,
+                    "open": float(opens[i]),
+                    "high": float(highs[i]),
+                    "low": float(lows[i]),
+                    "close": float(closes[i]),
+                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+                })
+
+            if timestamps[-1] >= end_sec:
+                break
+
+            next_start = timestamps[-1] + 1
+
+            if next_start <= current_start:
+                break
+
+            current_start = next_start
+
+            time.sleep(0.2)
+
+        df = pd.DataFrame(all_candles)
+        if not df.empty:
+            df["datetime"] = pd.to_datetime(
+                df["datetime"], unit="s")
+
+            df = (df
+                .drop_duplicates(subset="datetime")
+                .sort_values("datetime")
+                .reset_index(drop=True))
+
+        return df
+
+    
+    # =================  Standardisation & resampling  =========================
+
+    def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        required = {"datetime", "open", "high", "low", "close", "volume"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns after fetch: {missing}")
+        
+        df["open"] = df["open"].astype(float)
+        df["high"] = df["high"].astype(float)
+        df["low"] = df["low"].astype(float)
+        df["close"] = df["close"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+
+        platform = self.config["provider"].lower()
+        if platform in ["binance", "vietstock"]:
+            df["datetime"] = (pd.to_datetime(df["datetime"])
+                              .dt.tz_localize(None)
+                              + pd.Timedelta(hours=7))
+
+        elif platform == "investing":     
+            df["datetime"] = (pd.to_datetime(df["datetime"], utc=True)
+                            .dt.tz_convert("America/New_York")
+                            .dt.tz_localize(None))
+
+        return df
+
+    def _resample_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        target = self.config["target_interval"]
+        value, unit = int(target[:-1]), target[-1]
+        if unit == 'm':
+            unit = 'min'
+
+        rule = f"{value}{unit}"
+        df = df.set_index("datetime")
+        df = df.sort_index()
+        resampled = df.resample(rule).agg({
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum"
+        }).dropna()
+
+        resampled = resampled.reset_index()
+        return resampled
+
+
+
+
+# ============ Component 3: MAIN ENGINE ===============
+class OhlcvGenerator:
+
+    def __init__(self, 
+                 symbols: List[str], timeframe: str, time_start: str, time_end: str=None,
+                 save_data: bool = True, update_data: bool=False,
+                 max_workers: int = 5):
+        """
+        Args:
+            symbols: List of ticker symbols (with optional provider prefixes).
+            timeframe: e.g. "5m", "2h", "1d".
+            time_start, time_end: Format "%Y-%m-%d %H:%M:%S".
+
+            save_data: If True, store CSV results in 'cached_data' folder.
+            update_data: If True, scrape web for new data no matter if CSV data existed or not.
+
+            max_workers: Thread pool size.
+        """
+
+        self.save_data = save_data
+        self.update_data = update_data
+
+        self.max_workers = max_workers
+
+        if not time_end:
+            time_end = str(pd.Timestamp.now().floor('s'))
+            
+        validator = _ValidateInputParams(symbols, timeframe, time_start, time_end)
+
+        self.symbol_configs = validator.symbol_configs
+        self.base_interval = validator.base_interval
+        self.requires_resampling = validator.requires_resampling
+        self.timeframe = validator.timeframe
+
+        self.cache_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                        "cached_data")
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+    def _get_cache_path(self, symbol: str) -> str:
+        safe_symbol = symbol.replace("/", "_").replace(":", "_")
+        return os.path.join(self.cache_dir, f"{safe_symbol}_{self.timeframe}.csv")
+
+    def _load_from_cache(self, symbol: str) -> Optional[pd.DataFrame]:
+        
+        cache_path = self._get_cache_path(symbol)
+        if os.path.exists(cache_path) and self.update_data==False:
+            try:
+                df = pd.read_csv(cache_path)
+                if "datetime" in df.columns:
+                    df["datetime"] = pd.to_datetime(df["datetime"])
+                print(f"[CACHE] Loaded {symbol} from {cache_path}")
+                return df
+            except Exception as e:
+                print(f"[CACHE] Warning: could not read {cache_path}: {e}")
+        return None
+
+    def _save_to_cache(self, symbol: str, df: pd.DataFrame) -> None:
+        if not self.save_data:
+            return
+        cache_path = self._get_cache_path(symbol)
+        df.to_csv(cache_path, index=False)
+        print(f"[CACHE] Scraped and Saved {symbol} -> {cache_path}")
+
+    def _apply_rate_delay(self, provider: str) -> None:
+        if provider in ("vietstock", "investing"):
+            delay = random.uniform(0.1, 0.5)
+            time.sleep(delay)
+
+    def _load_single_symbol(self, config: Dict[str, Any]) -> Tuple[str, Optional[pd.DataFrame], Optional[Tuple[str, str]]]:
+        
+        symbol = config["original_symbol"]
+        cached_df = self._load_from_cache(symbol)
+        if cached_df is not None:
+            return (symbol, cached_df, None)
+
+        self._apply_rate_delay(config["provider"])
+
+        loader = _OhlcvSingleLoader(config)
+        result = loader.fetch()
+
+        if isinstance(result, pd.DataFrame):
+            self._save_to_cache(symbol, result)
+            return (symbol, result, None)
+        else:
+            _, _, err_name, err_msg = result
+            return (symbol, None, (err_name, err_msg))
+
+
+    # ================================
+    # ============== MAIN EXE ============
+    # ========================================
+    def generate(self) -> Dict[str, Union[pd.DataFrame, Tuple[str, str]]]:
+
+        results = {}
+        successful_symbols = []
+        failed_symbols = []
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_symbol = {
+                executor.submit(self._load_single_symbol, cfg): cfg["original_symbol"]
+                for cfg in self.symbol_configs
+            }
+
+            for future in as_completed(future_to_symbol):
+                sym, df, error = future.result()
+                if error is not None:
+                    err_name, err_msg = error
+                    results[sym] = (err_name, err_msg)
+                    failed_symbols.append((sym, err_name, err_msg))
+                else:
+                    results[sym] = df
+                    successful_symbols.append(sym)
+
+        # Final console log
+        total = len(self.symbol_configs)
+        success_count = len(successful_symbols)
+        print(f"{GREEN}\nSuccessfully scraped {success_count}/{total} symbols{RESET}")
+        if failed_symbols:
+            print(f"{RED}Failed symbols:{RESET}")
+            for sym, err_name, err_msg in failed_symbols:
+                print(f"'{sym}': {PURPLE}{err_name} - {err_msg}{RESET}")
+
+        return results
+
+
+# -----------------------------------------------------------------------------
+# Example usage (if run as script)
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    # Demo: fetch mixed symbols with caching and resampling
+    generator = OhlcvGenerator(
+        symbols=["US:CTS", 'VN:CTS', 'BTCUSDT'],
+        timeframe="1h",
+        time_start="2025-10-01 00:00:00",
+        # time_end="2026-06-14 00:00:00",
+        save_data=True,
+        update_data = False,
+        max_workers=3
+    )
+    data = generator.generate()

@@ -1,3 +1,3 @@
-from .data_api import *
+from .ohlcv import *
 
-__all__ = ['AccessData']
+__all__ = ['OhlcvGenerator']
