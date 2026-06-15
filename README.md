@@ -2,11 +2,10 @@
 
 # <div align="center"><b>VNMiniQuant</b></div>
 
-*A lightweight quantitative toolkit for Vietnamese stock market research*
+*A lightweight quantitative toolkit for avid quantitative researcher*
 
-[![Python](https://img.shields.io/badge/Python-3.13-blue?style=flat-square)](https://python.org)
-[![Data](https://img.shields.io/badge/Data-vnstock-green?style=flat-square)](https://github.com/thinh-vu/vnstock)
-[![Market](https://img.shields.io/badge/Market-HOSE%20%7C%20HNX%20%7C%20UPCOM-red?style=flat-square)]()
+[![Python](https://img.shields.io/badge/Python-3.13.5-blue?style=flat-square)](https://python.org)
+[![Market](https://img.shields.io/badge/Market-Vietnam%20%7C%20US%20%7C%20Crypto-red?style=flat-square)]()
 [![Status](https://img.shields.io/badge/Status-Active%20Development-orange?style=flat-square)]()
 
 </div>
@@ -17,9 +16,9 @@
 
 **VNMiniQuant** is a personal quantitative research tool built to automate alpha validation step.
 
-The core motivation is simple: individual investors in Vietnam rarely have access to institutional-grade backtesting infrastructure. 
+The core motivation is simple: individual investors rarely have access to institutional-grade system. 
 
-This tool bridges that gap — allowing individuals to **backtest it on historical data, and validate whether it holds statistical merit** before risking real capital.
+This tool partly bridges that gap — allowing individuals to **develop, backtest and deploy their alpha on live** before risking real capital.
 
 
 ---
