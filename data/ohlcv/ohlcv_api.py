@@ -1,16 +1,16 @@
 import os
-from pathlib import Path
 import re
 import time
 import random
-import json
 import urllib3
 from typing import Dict, List, Tuple, Optional, Any, Union
+from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -24,6 +24,41 @@ RESET = "\033[0m"
 
 
 # =========== Helper class ===============
+@dataclass
+class ResolutionMap:
+    available_timeframe = {
+        "binance": {"1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+                    "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h", "12h": "12h",
+                    "1d": "1d"
+        },
+        "vietstock": { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "45m": "45",
+                        "1h": "60", "2h": "120", "3h": "180","4h": "240",
+                        "1d": "1D"
+                        },
+        "investing": {"5m": "5", "15m": "15", "30m": "30",
+                      "1h": "60",
+                      "1d": "D"}
+        }
+    
+    transformed_timeframe = {}
+    for platform, mapping in available_timeframe.items():
+
+        candidates = []
+        for tf, raw in mapping.items():
+
+            if tf.lower().endswith("m"):
+                base = int(tf[:-1])
+
+            elif tf.lower().endswith("h"):
+                base = int(tf[:-1]) * 60
+
+            elif tf.lower().endswith("d"):
+                base = 1440
+
+            candidates.append((base, tf))
+
+        transformed_timeframe[platform] = sorted(candidates, key=lambda x: x[0])
+
 class InputError(Exception):
     pass
 
@@ -70,22 +105,32 @@ class _ValidateInputParams:
         symbol must be available
     """
 
-    # Native intervals
-    NATIVE_MINUTE_INTERVALS = {1, 3, 5, 15, 30, 45}
-    NATIVE_HOUR_INTERVALS = {1, 2, 4, 6, 8, 12}
-    NATIVE_DAY_INTERVALS = {1}
-
-    def __init__(self, symbols: List[str], timeframe: str, time_start: str, time_end: str):
+    def __init__(self, symbols: List[str], timeframe: Union[str, List[str]], time_start: str, time_end: str):
+        
+    
         self.symbols = symbols
-        self.timeframe = timeframe
         self.time_start = time_start
         self.time_end = time_end
 
-        # Validate timeframe syntax
-        self._validate_timeframe()
+        # Validate timeframe and symbol
+        if isinstance(timeframe, str):
+            self.timeframes = [timeframe] * len(symbols)
+        elif isinstance(timeframe, list) and len(timeframe)==len(symbols):
+            self.timeframes = timeframe
+        else:
+            raise InputError('Must provide only 1 or same number of timeframe as number of symbol')
+        for tf in self.timeframes:
+            self._validate_timeframe(tf)
 
-        # Determine timeframe base interval + resampling if needed
-        self.base_interval, self.requires_resampling = self._compute_base_interval()
+
+        # Compute interval based on available timeframe in each platform
+        results = [self._route_symbol(sym) for sym in self.symbols]
+        self.base_intervals = []
+        self.requires_resampling_flags = []
+        for idx, tf in enumerate(self.timeframes):
+            base, requires = self._compute_base_interval(tf, platform=results[idx][0])
+            self.base_intervals.append(base)
+            self.requires_resampling_flags.append(requires)
 
         # Convert timestamps to seconds and milliseconds precision
         self.start_ts_sec, self.end_ts_sec = self._to_unix_seconds(time_start, time_end)
@@ -94,63 +139,73 @@ class _ValidateInputParams:
 
         # For each symbol: routing, prefixed overrides, warnings
         self.symbol_configs = []
-        for sym in symbols:
+        for sym, base_interval, requires_resampling, target_interval in zip(
+                    self.symbols, self.base_intervals, 
+                    self.requires_resampling_flags, 
+                    self.timeframes):
+            
             provider, clean_symbol = self._route_symbol(sym)
-            self._print_intraday_warning(provider, clean_symbol, timeframe)
+            self._print_intraday_warning(provider, clean_symbol, target_interval)
             self.symbol_configs.append({
                 "original_symbol": sym,
                 "symbol": clean_symbol,
                 "provider": provider,
-                "base_interval": self.base_interval,
-                "requires_resampling": self.requires_resampling,
-                "target_interval": timeframe,
+                "base_interval": base_interval,
+                "requires_resampling": requires_resampling,
+                "target_interval": target_interval,
                 "start_ts_sec": self.start_ts_sec,
                 "end_ts_sec": self.end_ts_sec,
                 "start_ts_ms": self.start_ts_ms,
                 "end_ts_ms": self.end_ts_ms,
             })
 
-    
 
-    def _validate_timeframe(self) -> None:
+    def _compute_base_interval(self, timeframe: str, platform: str) -> Tuple[str, bool]:
+        val = int(timeframe[:-1])
+        unit = timeframe[-1].lower()
+
+        if unit == "m":
+            target = val
+        elif unit == "h":
+            target = val * 60
+        elif unit == "d":
+            target = val * 1440
+
+        candidates = ResolutionMap.transformed_timeframe[platform]
+
+        best_tf = None
+        best_bars = float("inf")
+
+        for base_minutes, tf in candidates:
+
+            if target % base_minutes != 0:
+                continue
+
+            bars = target // base_minutes
+
+            if bars < best_bars:
+                best_bars = bars
+                best_tf = tf
+
+        # fallback: smallest available candle
+        if best_tf is None:
+            best_tf = candidates[0][1]
+
+        is_resampled = (best_tf != timeframe)
+
+        return best_tf, is_resampled
+
+    def _validate_timeframe(self, timeframe: str) -> None:
+        timeframe = timeframe.lower()
         pattern = r"^\d+[dmh]$"
-        if not re.match(pattern, self.timeframe):
+        if not isinstance(timeframe, str) or not re.match(pattern, timeframe):
             raise ValueError(
-                f"Invalid timeframe format: '{self.timeframe}'. Expected pattern: "
+                f"Invalid timeframe format: '{timeframe}'. Expected pattern: "
                 f"positive integer followed by 'd' (days), 'm' (minutes), or 'h' (hours). "
                 f"Examples: '1d', '15m', '4h'."
             )
 
-    def _compute_base_interval(self) -> Tuple[str, bool]:
-        val = int(self.timeframe[:-1])
-        unit = self.timeframe[-1]
-
-        if unit == 'm':
-            if val in self.NATIVE_MINUTE_INTERVALS:
-                return f"{val}m", False
-            if val % 30 == 0:
-                return "30m", True
-            if val % 15 == 0:
-                return "15m", True
-            if val % 5 == 0:
-                return "5m", True
-            return "1m", True
-        
-        elif unit == 'h':
-            if val in self.NATIVE_HOUR_INTERVALS:
-                return f"{val}h", False
-            if val % 12 == 0:
-                return "12h", True
-            if val % 6 == 0:
-                return "6h", True
-            if val % 2 == 0:
-                return "2h", True
-            return "1h", True
-        
-        else:  
-            if val == 1:
-                return "1d", False
-            return "1d", True
+    
 
     def _to_unix_seconds(self, time_start: str, time_end: str) -> Tuple[int, int]:
         try:
@@ -267,15 +322,20 @@ class _OhlcvSingleLoader:
         start_ms = self.config["start_ts_ms"]
         end_ms = self.config["end_ts_ms"]
 
-        url = "https://www.binance.com/api/v3/uiKlines"
+        resolution_map = ResolutionMap.available_timeframe['binance']
+        if base_interval not in resolution_map:
+            raise ValueError(f"Vietstock does not support {self.config['target_interval']} as of no {base_interval} interval")
+        
 
+        url = "https://www.binance.com/api/v3/uiKlines"
         all_candles = []
         current_start = start_ms
+        resolution = resolution_map[base_interval]
 
         while current_start < end_ms:
             params = {
                 "symbol": symbol,
-                "interval": base_interval,
+                "interval": resolution,
                 "startTime": current_start,
                 "endTime": end_ms,
                 "limit": self.MAX_LIMITS["binance"]
@@ -335,28 +395,16 @@ class _OhlcvSingleLoader:
         base_interval = self.config["base_interval"]
         start_sec = int(self.config["start_ts_sec"])
         end_sec = int(self.config["end_ts_sec"])
-        resolution_map = {"1m": "1",
-                        "2m": "2",
-                        "5m": "5",
-                        "15m": "15",
-                        "30m": "30",
-                        "45m": "45",
-                        
-                        "1h": "60",
-                        "2h": "120",
-                        "3h": "180",
-                        "4h": "240",
 
-                        "1d": "1D"
-                        }
-        resolution = resolution_map.get(base_interval)
-
-        if resolution is None:
-            raise ValueError(f"Vietstock does not support base interval {base_interval}")
+        resolution_map = ResolutionMap.available_timeframe['vietstock']
+        if base_interval not in resolution_map:
+            raise ValueError(f"Vietstock does not support {self.config['target_interval']} as of no {base_interval} interval")
         
+
         url = "https://api.vietstock.vn/tvnew/history"
         all_candles = []
         current_start = start_sec
+        resolution = resolution_map[base_interval]
 
         while current_start < end_sec:
 
@@ -429,18 +477,15 @@ class _OhlcvSingleLoader:
         start_sec = self.config["start_ts_sec"]
         end_sec = self.config["end_ts_sec"]
 
-        res_map = {"5m": "5", "15m": "15", "30m": "30",
-                    "1h": "60", "4h": "240",
-                    "1d": "D"}
+        res_map = ResolutionMap.available_timeframe['investing']
         if base_interval not in res_map:
-            raise ValueError(f"Investing does not support base interval {base_interval}")
+            raise ValueError(f"Investing does not support {self.config['target_interval']} as of no {base_interval} interval")
 
-        resolution = res_map[base_interval]
-
-
+        
         url = "https://tvc4.investing.com/127911700fc4e5afa1929fb2ab34b234/1781436887/1/1/8/history"
         all_candles = []
         current_start = start_sec
+        resolution = res_map[base_interval]
 
         while current_start < end_sec:
             params = {
@@ -535,7 +580,7 @@ class _OhlcvSingleLoader:
 
     def _resample_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         target = self.config["target_interval"]
-        value, unit = int(target[:-1]), target[-1]
+        value, unit = int(target[:-1]), target[-1].lower()
         if unit == 'm':
             unit = 'min'
 
@@ -560,7 +605,7 @@ class _OhlcvSingleLoader:
 class OhlcvGenerator:
 
     def __init__(self, 
-                 symbols: List[str], timeframe: str, time_start: str, time_end: str=None,
+                 symbols: List[str], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
                  save_data: bool = True, update_data: bool=False,
                  max_workers: int = 5):
         """
@@ -580,15 +625,33 @@ class OhlcvGenerator:
 
         self.max_workers = max_workers
 
+        # Accept either a single timeframe string or a list matching symbols
+        if isinstance(timeframe, (str, list)):
+            tf_input = timeframe
+        else:
+            raise InputError('timeframe must be a string or list of strings')
+
         if not time_end:
             time_end = str(pd.Timestamp.now().floor('s'))
-            
-        validator = _ValidateInputParams(symbols, timeframe, time_start, time_end)
+
+        validator = _ValidateInputParams(symbols, tf_input, time_start, time_end)
 
         self.symbol_configs = validator.symbol_configs
-        self.base_interval = validator.base_interval
-        self.requires_resampling = validator.requires_resampling
-        self.timeframe = validator.timeframe
+        # Backwards-compatible exposures: return scalar when all entries identical
+        if len(set(validator.timeframes)) == 1:
+            self.timeframe = validator.timeframes[0]
+        else:
+            self.timeframe = validator.timeframes
+
+        if len(set(validator.base_intervals)) == 1:
+            self.base_interval = validator.base_intervals[0]
+        else:
+            self.base_interval = validator.base_intervals
+
+        if len(set(validator.requires_resampling_flags)) == 1:
+            self.requires_resampling = validator.requires_resampling_flags[0]
+        else:
+            self.requires_resampling = validator.requires_resampling_flags
 
         self.cache_dir = os.path.join(
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
@@ -597,7 +660,15 @@ class OhlcvGenerator:
 
     def _get_cache_path(self, symbol: str) -> str:
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        return os.path.join(self.cache_dir, f"{safe_symbol}_{self.timeframe}.csv")
+        # Use the symbol's target_interval from symbol_configs when available
+        tf = None
+        for cfg in self.symbol_configs:
+            if cfg.get("original_symbol") == symbol:
+                tf = cfg.get("target_interval")
+                break
+        if tf is None:
+            tf = self.timeframe if isinstance(self.timeframe, str) else (self.timeframe[0] if self.timeframe else "")
+        return os.path.join(self.cache_dir, f"{safe_symbol}_{tf}.csv")
 
     def _load_from_cache(self, symbol: str) -> Optional[pd.DataFrame]:
         
@@ -688,12 +759,12 @@ class OhlcvGenerator:
 if __name__ == "__main__":
     # Demo: fetch mixed symbols with caching and resampling
     generator = OhlcvGenerator(
-        symbols=["US:CTS", 'VN:CTS', 'BTCUSDT'],
-        timeframe="1h",
+        symbols=["US:CTS", 'VN:CTS', 'ETHUSDT'],
+        timeframe=['4h', '13m', '16H'],
         time_start="2025-10-01 00:00:00",
         # time_end="2026-06-14 00:00:00",
         save_data=True,
-        update_data = False,
+        update_data = True,
         max_workers=3
     )
     data = generator.generate()
