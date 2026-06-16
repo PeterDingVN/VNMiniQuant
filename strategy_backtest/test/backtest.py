@@ -187,7 +187,7 @@ class BacktestEngine:
         Datetime: Union[pd.Series, pd.DatetimeIndex],
         Position: Union[pd.Series, Dict[str, pd.Series]],   # SINGLE or {sym: series}
         Close: Union[pd.Series, Dict[str, pd.Series]],      # SINGLE or {sym: series}
-        fee: float = 0.00088,  # 0.04% total round-trip → /2 = 0.02% per side
+        fee: float = 0.00054,  # 0.04% total round-trip → /2 = 0.02% per side
         
         # === YÊU CẦU 1: PYRAMIDING ===
         use_pyramiding: bool = True,  # True: DCA | False: Force -1/0/1
@@ -323,7 +323,7 @@ class BacktestEngine:
                 scale = alloc / close.iloc[0]  # Fixed at first price
             else:
                 raise ValueError("hedge_type must be 'notional' or 'unit'")
-            Positions[sym] = Positions[sym] * scale
+            Positions[sym] = Positions[sym] 
         
         # =====================
         # 5. BUILD MAIN DF
@@ -400,12 +400,17 @@ class BacktestEngine:
                 pos = df[f'Position_{sym}']
                 df[f'input_pos_{sym}'] = pos.diff().fillna(pos.iloc[0])
                 df[f'gain_{sym}'] = pos.shift(1).fillna(0) * df[f'Close_{sym}'].diff()
-                df[f'fee_cost_{sym}'] = self.fee * df[f'input_pos_{sym}'].abs()
+                df[f'fee_cost_{sym}'] = 0.4 * df[f'input_pos_{sym}'].abs()  # FEE COST 0.4 points
+
+
             df['gain'] = sum(df[f'gain_{sym}'] for sym in symbols)
             df['fee_cost'] = sum(df[f'fee_cost_{sym}'] for sym in symbols)
             df['gain_after_fee'] = df['gain'] - df['fee_cost']
             df['total_gain_after_fee'] = df['gain_after_fee'].cumsum()
-            df['equity'] = initial_capital + df['total_gain_after_fee']
+            
+            df['equity'] = df['total_gain_after_fee']
+            df['scaled_equity'] = df['gain_after_fee'].cumsum() / (n/252) + initial_capital
+
         else:
             # === FULL PORTFOLIO SIMULATION ===
             equity = initial_capital
@@ -609,10 +614,7 @@ class BacktestEngine:
 
     def analyze(self, figsize: Tuple[int, int] = (15, 12)) -> None:
         self.metrics()
-        print("\n" + "="*60 + "\n")
-        self.plot_dashboard(figsize)
-        print("\n" + "="*40 + " Monthly Returns " + "="*40 + "\n")
-        self.plot_monthly_returns_heatmap()
+        
 
     def metrics(self, plot: bool = True) -> None:
         df = self.df
@@ -628,7 +630,7 @@ class BacktestEngine:
             ('Total Return %', f"{total_ret:.2f}%"),
             ('Liquidations', liq),
             ('Insufficient Margin', insuff),
-            ('MDD %', f"{self.MDD()[1]:.2f}%"),
+            ('MDD %', [f"{self.MDD()[1]:.2f}%", f"{self.MDD()[0]:.2f}"]),
             ('Sharpe', f"{self.Sharp_after_fee_funding():.2f}"),
             ('Number of Trades', self.Number_of_trade()),
             ('Long Hitrate %', f"{long_hr:.2f}%"),
@@ -639,15 +641,48 @@ class BacktestEngine:
 
     def MDD(self) -> Tuple[float, float]:
         equity = self.df['equity']
-        peak = equity.cummax()
+        scaled_equity = self.df['total_gain_after_fee'].dropna().cumsum() / (len(self.df)/252) / max(self.df['Close_DEFAULT'])
+        scaled_equity = scaled_equity[scaled_equity!=0]
+        peak = equity[equity!=0].cummax()
         dd_abs = peak - equity
-        dd_rel = (peak - equity) / peak * 100
-        return dd_abs.max(), dd_rel.max()
+        
+        # Peak corresponding to that trough
+        mdd_trough_idx = dd_abs.idxmax()
+        mdd_peak_idx = equity.loc[:mdd_trough_idx].idxmax()
+        print(scaled_equity)
+        dd_rel = max((scaled_equity.cummax() - scaled_equity)) / scaled_equity.max() * 100 # 15.72
+
+        
+
+        peak = equity.cummax()
+        # dd_pct = ((peak - equity) / peak * 100).max()
+
+
+
+        # print("MDD Abs:", dd_abs.loc[mdd_trough_idx])
+        # print("MDD Rel (%):", dd_rel.loc[mdd_trough_idx])
+
+        # print("Peak index:", mdd_peak_idx)
+        # print("Trough index:", mdd_trough_idx)
+
+        # print("Close_DEFAULT at peak:",
+        #     self.df.loc[mdd_peak_idx, 'Close_DEFAULT'])
+
+        # print("Close_DEFAULT at trough:",
+        #     self.df.loc[mdd_trough_idx, 'Close_DEFAULT'])
+
+        
+        return dd_abs.max(), dd_rel
 
     def Sharp_after_fee_funding(self) -> float:
-        daily = self.df['equity'].resample("1D").last().ffill().dropna()
+        # daily = self.df['equity'].resample("1D").last().ffill().dropna()
+        # ret = daily.pct_change().dropna()
+        # return (ret.mean() / ret.std()) * np.sqrt(252) if ret.std() != 0 else 0
+        eq = self.df['total_gain_after_fee'] + self.initial_capital
+        daily = eq.resample("D").last().ffill().dropna()
         ret = daily.pct_change().dropna()
-        return (ret.mean() / ret.std()) * np.sqrt(252) if ret.std() != 0 else 0
+        sharpe = (ret.mean() / ret.std()) * np.sqrt(252) if ret.std() != 0 else 0
+        return sharpe
 
     def plot_monthly_returns_heatmap(self, figsize: Tuple[int, int] = (12, 6)) -> None:
         daily = self.df['equity'].resample("1D").last().ffill().dropna()
@@ -663,3 +698,11 @@ class BacktestEngine:
         ax.set_xlabel('Month'); ax.set_ylabel('Year')
         ax.set_xticklabels(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'])
         plt.tight_layout(); plt.show()
+
+if __name__ == "__main__":
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_Futures\data\cached_data\stock_price_cache\cty_pos.csv')
+    df.columns = [c.lower() for c in df.columns]
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df = df.set_index('datetime')
+    perf = BacktestEngine(Datetime=df.index, Position=df['position'], Close=df['close'], fee=0.0005, run_portfolio=False)
+    print(perf.analyze())
