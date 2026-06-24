@@ -229,6 +229,11 @@ class _ValidateInputParams:
         # Vietnam stock 
         if symbol_upper.startswith("VN:"): 
             return "vietstock", symbol_upper[3:]
+        elif len(symbol_upper)==3:
+            return "vietstock", symbol_upper
+        elif symbol_upper.isin(['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']):
+            return "vietstock", symbol_upper
+
         
         # US stock
         if symbol_upper.startswith("US:"):
@@ -241,7 +246,8 @@ class _ValidateInputParams:
         elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
             return "binance", symbol_upper
 
-        raise InputError(f'Asset {symbol} does not exist. Please specify VN:, US: for stock data.')
+        raise InputError(f'Asset {symbol} does not exist. Please pass US: for us stock,' 
+                         f'3-letter or VN: for VN stock, and usdt or similar suffixes for crypto')
 
 
     def _print_intraday_warning(self, provider: str, symbol: str, timeframe: str) -> None:
@@ -420,7 +426,7 @@ class _OhlcvSingleLoader:
             resp = self.session.get(url, params=params, headers=self.headers, timeout=70)
             resp.raise_for_status()
             data = resp.json()
-            
+
             if not data:
                 break
             if data.get("s") != "ok":
@@ -765,9 +771,9 @@ class OhlcvGenerator:
 if __name__ == "__main__":
     # Demo: fetch mixed symbols with caching and resampling
     generator = OhlcvGenerator(
-        symbols="VN:AGR",
+        symbols="CTS",
         timeframe='30m',
-        time_start="2025-10-01 00:00:00",
+        time_start="2025-01-01 00:00:00",
         # time_end="2026-06-14 00:00:00",
         save_data=True,
         update_data = True,
