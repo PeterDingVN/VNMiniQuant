@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
+import numpy as np
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -35,9 +36,14 @@ class ResolutionMap:
                         "1h": "60", "2h": "120", "3h": "180","4h": "240",
                         "1d": "1D"
                         },
+        "simplize": {'1m': '1m', '15m':'15m',
+                     '1h':'1h',
+                     '1d': '1d', '1w': '1w'
+                     },
         "investing": {"5m": "5", "15m": "15", "30m": "30",
                       "1h": "60",
-                      "1d": "D"}
+                      "1d": "D"
+                      }
         }
     
     transformed_timeframe = {}
@@ -231,9 +237,16 @@ class _ValidateInputParams:
             return "vietstock", symbol_upper[3:]
         elif len(symbol_upper)==3:
             return "vietstock", symbol_upper
-        elif symbol_upper.isin(['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']):
-            return "vietstock", symbol_upper
-
+        elif symbol_upper in ['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']:
+            return 'vietstock', symbol_upper
+        
+        # Index and commodities
+        if symbol_upper.startswith("CMX:"):
+            return "simplize", symbol_upper[4:]
+        elif symbol_upper in ['DJI', 'N255', 'NASDAQ', 'GSPC']:
+            return "simplize", symbol_upper
+        elif symbol_upper in ['Gold', 'XAUUSD']:
+            return 'simplize', 'GC=F'
         
         # US stock
         if symbol_upper.startswith("US:"):
@@ -246,8 +259,12 @@ class _ValidateInputParams:
         elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
             return "binance", symbol_upper
 
-        raise InputError(f'Asset {symbol} does not exist. Please pass US: for us stock,' 
-                         f'3-letter or VN: for VN stock, and usdt or similar suffixes for crypto')
+        raise InputError(f'\nAsset {symbol} does not exist. Please pass \n' 
+                         f'- "US:" for us stock \n' 
+                         f'- 3-letter or "VN:" for VN stock \n'
+                         f'- usdt, usdc, busd, btc, eth for crypto \n'
+                         f'- "CMX" for commodities and macro indexes'
+                         )
 
 
     def _print_intraday_warning(self, provider: str, symbol: str, timeframe: str) -> None:
@@ -278,7 +295,7 @@ class _OhlcvSingleLoader:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.session = RobustSession._create_robust_session()
-        self.headers = {
+        self.headers_vs = {
                     'Accept': '*/*',
                     'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
                     'Connection': 'keep-alive',
@@ -292,6 +309,21 @@ class _OhlcvSingleLoader:
                     'sec-ch-ua-mobile': '?0',
                     'sec-ch-ua-platform': '"Windows"'
                     }
+        self.headers_simp = {
+                    'accept': 'application/json, text/plain, */*',
+                    'accept-language': 'en-US,en;q=0.9,vi;q=0.8',
+                    'origin': 'https://simplize.vn',
+                    'priority': 'u=1, i',
+                    'referer': 'https://simplize.vn/',
+                    'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"',
+                    'sec-fetch-dest': 'empty',
+                    'sec-fetch-mode': 'cors',
+                    'sec-fetch-site': 'same-site',
+                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
+                    }
+
 
     def fetch(self) -> Union[pd.DataFrame, Tuple[str, bool, str, str]]:
 
@@ -303,11 +335,13 @@ class _OhlcvSingleLoader:
                 df = self._fetch_vietstock()
             elif provider == "investing":
                 df = self._fetch_investing()
+            elif provider == 'simplize':
+                df = self._fetch_simplize()
             else:
                 raise ValueError(f"Unknown provider: {provider}")
 
             if df.empty:
-                raise ValueError("Fetched data is empty")
+                raise ValueError("Ticker does not exist. Please check source, api url, parsing method.")
 
 
             df = self._standardize_dataframe(df)
@@ -423,7 +457,7 @@ class _OhlcvSingleLoader:
                 "to": end_sec,
             }
             
-            resp = self.session.get(url, params=params, headers=self.headers, timeout=70)
+            resp = self.session.get(url, params=params, headers=self.headers_vs, timeout=70)
             resp.raise_for_status()
             data = resp.json()
 
@@ -440,6 +474,90 @@ class _OhlcvSingleLoader:
             lows = data.get("l", [])
             closes = data.get("c", [])
             volumes = data.get("v", [])
+
+            for i, ts in enumerate(timestamps):
+                if ts > end_sec:
+                    break
+
+                all_candles.append({
+                    "datetime": ts,
+                    "open": float(opens[i]),
+                    "high": float(highs[i]),
+                    "low": float(lows[i]),
+                    "close": float(closes[i]),
+                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+                })
+
+            
+            if timestamps[-1] >= end_sec:
+                break
+        
+            next_start = timestamps[-1] + 1
+            if next_start <= current_start:
+                break
+            current_start = next_start
+
+            time.sleep(0.2)
+
+        df = pd.DataFrame(all_candles)
+        if not df.empty:
+            df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+            df = (df
+                .drop_duplicates(subset="datetime")
+                .sort_values("datetime")
+                .reset_index(drop=True))
+            
+        return df
+    
+    # ============ Fetch Vietstock ===================
+    def _fetch_simplize(self) -> pd.DataFrame:
+
+        symbol = self.config["symbol"]
+        base_interval = self.config["base_interval"]
+
+        if base_interval[-1] in (['m', 'h']):
+            raise InputError('Commodities and non-Vietnamese indexes only accepts timeframe day (d)')
+
+        start_sec = int(self.config["start_ts_sec"])
+        end_sec = int(self.config["end_ts_sec"])
+
+        resolution_map = ResolutionMap.available_timeframe['simplize']
+        if base_interval not in resolution_map:
+            raise ValueError(f"Simplize does not support {self.config['target_interval']} for the chosen ticker")
+        
+
+        url = "https://api2.simplize.vn/api/historical/prices/ohlcv"
+        all_candles = []
+        current_start = start_sec
+        resolution = resolution_map[base_interval]
+
+        while current_start < end_sec:
+
+            params = {
+                "ticker": symbol,
+                "interval": resolution,
+                "from": current_start,
+                "to": end_sec,
+            }
+            
+            resp = self.session.get(url, params=params, headers=self.headers_simp, timeout=70)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if not data:
+                break
+
+            data = pd.DataFrame(data['data'], columns = ['t', 'o', 'h', 'l', 'c', 'v'])
+
+            timestamps = np.array(data.get("t", []))
+            if timestamps.size==0:
+                break
+
+            opens = np.array(data.get("o", []))
+            highs = np.array(data.get("h", []))
+            lows = np.array(data.get("l", []))
+            closes = np.array(data.get("c", []))
+            volumes = np.array(data.get("v", []))
 
             for i, ts in enumerate(timestamps):
                 if ts > end_sec:
@@ -672,7 +790,6 @@ class OhlcvGenerator:
 
     def _get_cache_path(self, symbol: str) -> str:
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        # Use the symbol's target_interval from symbol_configs when available
         tf = None
         for cfg in self.symbol_configs:
             if cfg.get("original_symbol") == symbol:
@@ -699,6 +816,11 @@ class OhlcvGenerator:
     def _save_to_cache(self, symbol: str, df: pd.DataFrame) -> None:
         if not self.save_data:
             return
+        suf = symbol.split(":", 1)[0]
+        if suf in ['VN', 'US', 'CP', 'CMX']:
+            symbol = symbol.split(":", 1)[1]
+        else:
+            symbol = symbol
         cache_path = self._get_cache_path(symbol)
         df.to_csv(cache_path, index=False)
         print(f"[CACHE] Scraped and Saved {symbol} -> {cache_path}")
@@ -771,8 +893,8 @@ class OhlcvGenerator:
 if __name__ == "__main__":
     # Demo: fetch mixed symbols with caching and resampling
     generator = OhlcvGenerator(
-        symbols="CTS",
-        timeframe='30m',
+        symbols="CMX:FRED:DFF",
+        timeframe='1d',
         time_start="2025-01-01 00:00:00",
         # time_end="2026-06-14 00:00:00",
         save_data=True,
