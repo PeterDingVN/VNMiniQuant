@@ -1,4 +1,4 @@
-from .test import *
-from .strategy_utils import *
+from .backtest_utils import *
+from .training_utils import *
 
-__all__ = [FinanceTest, StatTest, MonteCarlosPermutation, WalkForwardSplit, TrainTestSplit]
+__all__ = [FinanceBacktest, MonteCarlosPermutation, WalkForwardSplit, TrainTestSplit]
