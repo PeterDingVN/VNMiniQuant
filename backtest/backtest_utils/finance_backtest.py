@@ -343,13 +343,13 @@ class FinanceBacktest(FinanceMetrics):
 ======================================================
     Initial capital: {self.initial_capital:,.2f}
      Ending capital: {self.df['total_equity'].iloc[-1]:,.2f}
-             Sharpe: {sharpe}
-                MDD: {mdd_3[0]:.2f} ({mdd_3[1]}%); {mdd_3[2]}
+             Sharpe: {sharpe:.2f}
+                MDD: {mdd_3[0]:.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
       Annual Profit: {profit_3[1]:,.2f}
        Daily Profit: {profit_3[2]:,.2f}
        Total Return: {return_3[0]:.2f}%
-      Annual Return: {return_3[1]}%
+      Annual Return: {return_3[1]:.2f}%
                CAGR: {return_3[2]:.2f}%
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
@@ -361,24 +361,26 @@ Longest lose streak: {streak_2[1]}
 """
 
     def plot_equity(self):
-        figsize = (15,8)
+        figsize = (25,5)
         
         sharpe = self.Sharpe_after_fee()
         
         _, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={"height_ratios": [6, 4]}, sharex=True)
         
         # 1. Return
-        equity = self.df['total_equity'][~self.df['total_equity'].isin([np.nan, np.inf, -np.inf])]
+        equity = self.df['scaled_equity'][~self.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
+        equity = equity.resample('D').last().dropna()
         ret = (equity / equity.iloc[0] - 1) * 100
-        axs[0].plot(ret.index, ret, label=f"Strategy (Sharpe: {sharpe:.2f})", color="blue")
+        axs[0].plot(ret.index, ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
         axs[0].set_ylabel("Return (%)")
         axs[0].legend(); axs[0].grid(True, alpha=0.3)
         
         # 2. Drawdown
         peak = equity[equity!=0].cummax()
-        daily_dd = (peak - equity)
+        daily_dd = (peak - equity)/self.initial_capital * 100
+        daily_dd = daily_dd.resample('D').last().dropna()
         axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4)
-        axs[1].set_ylabel("Drawdown in Price/Points"); axs[1].grid(True, alpha=0.3)
+        axs[1].set_ylabel("Drawdown %"); axs[1].grid(True, alpha=0.3)
 
         plt.tight_layout(); plt.show()
 
@@ -397,6 +399,6 @@ if __name__ == "__main__":
     FinanceBacktest(df, asset_type='vn_futures', 
                     currency='vnd', 
                     inital_capital=124_000_000_000, 
-                    exposure=1, risk_free_rate=0).pnl_report(plot=False)
+                    exposure=1, risk_free_rate=0).pnl_report(plot=True)
     
     
