@@ -1,0 +1,37 @@
+{
+    "data": 
+        {
+        "symbol": "us:acb",
+        "timeframe": "1d",
+        "time_start": "2025-06-18 09:00:00",
+        "time_end": "2026-06-27 14:30:00"
+        },
+
+
+    "asset":
+        {
+        "asset_type": "vn_stock",
+        "initial_capital": 100000000,
+        "currency": "vnd",
+        "exposure": 1,
+        "risk_free_rate": 0.0
+        },
+
+
+    "alpha":
+        {
+        "filename": "MyAlpha",
+        "classname": "DonchianBreakout",
+        "alpha_type": "ta"
+        },
+
+        
+    "params":
+        {
+        "don_lookback": 14,
+        "ema_lookback": 36,
+        "atr_lookback": 12,
+        "long_atr_mult": 1.2,
+        "short_atr_mult": 1.1
+        }
+}
