@@ -2,3 +2,4 @@ requests==2.32.5
 urllib3==2.5.0
 pandas==2.3.3
 numpy==2.2.6
+git+https://github.com/rongardF/tvdatafeed.git@e6f6aaa7de439ac6e454d9b26d2760ded8dc4923
