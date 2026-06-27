@@ -11,7 +11,7 @@ from dataclasses import dataclass
 @dataclass
 class Fee():
     fee = {
-        'vn_futures': 0.4,
+        'vn_future': 0.4,
         'vn_stock': 0.5,
         'crypto': 0.00035,
         'us_stock': 0.5
@@ -123,7 +123,7 @@ class FinanceMetrics:
 
     def __init__(self,
                  df: pd.DataFrame, 
-                 asset_type: str = 'vn_futures', 
+                 asset_type: str = 'vn_future', 
                  initial_capital: float = 100_000_000,
                  exposure: float = 1.0,
                  currency: str = 'VND', 
@@ -147,10 +147,10 @@ class FinanceMetrics:
         elif self.currency.lower() not in ['usd', 'vnd']:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
-        if asset_type not in ['vn_futures', 'crypto', 'vn_stock', 'us_stock']:
-            raise ValueError('asset type only accepts: vn_stock, us_stock, vn_futures, crypto')
+        if asset_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
+            raise ValueError('asset type only accepts: vn_stock, us_stock, vn_future, crypto')
         
-        if asset_type == 'vn_futures':
+        if asset_type == 'vn_future':
             self.initial_capital = self.initial_capital / 100_000
             if self.initial_capital < std_data['close'].iloc[0]:
                 raise ValueError(f'Initial capital too small to buy 1 contract at {std_data['close'].iloc[0]} points')
@@ -320,13 +320,13 @@ class FinanceBacktest(FinanceMetrics):
     def __init__(self,
                  df: pd.DataFrame, 
                  asset_type: str, 
-                 inital_capital: float = 100_000_000, 
+                 initial_capital: float = 100_000_000, 
                  exposure: float = 1.0,
                  currency: str = 'VND', 
                  annual_sessions_in_days: float = 252,
                  risk_free_rate: float = 0.0
                  ):
-        super().__init__(df, asset_type, inital_capital, exposure, currency, annual_sessions_in_days, risk_free_rate)
+        super().__init__(df, asset_type, initial_capital, exposure, currency, annual_sessions_in_days, risk_free_rate)
 
     def dashboard(self):
         sharpe = self.Sharpe_after_fee()
@@ -396,9 +396,9 @@ Longest lose streak: {streak_2[1]}
 # python -m backtest.backtest_utils.finance_backtest
 if __name__ == "__main__":
     df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\data\cached_data\alphaT6_s247.csv')
-    FinanceBacktest(df, asset_type='vn_futures', 
+    FinanceBacktest(df, asset_type='vn_future', 
                     currency='vnd', 
-                    inital_capital=124_000_000_000, 
+                    initial_capital=124_000_000_000, 
                     exposure=1, risk_free_rate=0).pnl_report(plot=True)
     
     
