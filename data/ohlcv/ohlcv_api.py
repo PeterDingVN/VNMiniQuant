@@ -182,12 +182,13 @@ class _ValidateInputParams:
             self._validate_timeframe(tf)
 
         # Early block if timeframe too far back
-        provider, _ = self._route_symbol(symbol)
-        if provider == 'vietstock' and self.timeframes[-1] != 'd' and self.time_end < '2025-06-27':
-            raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
+        
 
         # Compute interval based on available timeframe in each platform
         results = [self._route_symbol(sym) for sym in self.symbol]
+        for idx, (provider, _) in enumerate(results):
+            if provider == 'vietstock' and self.timeframes[idx][-1] != 'd' and self.time_end < '2025-06-27':
+                raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
         
         
         
@@ -219,6 +220,7 @@ class _ValidateInputParams:
             self._print_intraday_warning(provider, clean_symbol, target_interval)
             self.symbol_configs.append({
                 "original_symbol": sym.upper().strip(),
+                "original_symbol_with_time": f'{sym.upper().strip()}_{target_interval}',
                 "symbol": clean_symbol,
                 "provider": provider,
                 "base_interval": base_interval,
@@ -781,23 +783,27 @@ class OhlcvGenerator:
     def _get_cache_path(self, symbol: str) -> str:
         safe_symbol = symbol.replace("/", "_").replace(":", "_")
         tf = None
+
         for cfg in self.symbol_configs:
-            if cfg.get("original_symbol") == symbol:
+            if cfg.get("original_symbol_with_time") == symbol:
                 tf = cfg.get("target_interval")
                 break
         if tf is None:
             tf = self.timeframe if isinstance(self.timeframe, str) else (self.timeframe[0] if self.timeframe else "")
         return os.path.join(self.cache_dir, f"{safe_symbol}_{tf}.csv")
 
-    def _load_from_cache(self, symbol: str) -> Optional[pd.DataFrame]:
+
+    def _load_from_cache(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
         if self.update_data:
             return
 
         suf = symbol.split(":", 1)[0]
-        if suf in ['VN', 'CP', 'C&M']:
+        if suf in ['VN', 'CP', 'C&M', 'VNF']:
             symbol = symbol.split(":", 1)[1]
         else:
             symbol = symbol
+        symbol = f'{symbol}_{timeframe}'
+
         cache_path = self._get_cache_path(symbol)
         if os.path.exists(cache_path):
             try:
@@ -810,14 +816,17 @@ class OhlcvGenerator:
                 print(f"[CACHE] Warning: could not read {cache_path}: {e}")
       
 
-    def _save_to_cache(self, symbol: str, df: pd.DataFrame) -> None:
+    def _save_to_cache(self, symbol: str, df: pd.DataFrame, timeframe: str) -> None:
         if not self.save_data:
             return
+        
         suf = symbol.split(":", 1)[0]
-        if suf in ['VN', 'CP', 'C&M']:
+        if suf in ['VN', 'CP', 'C&M', 'VNF']:
             symbol = symbol.split(":", 1)[1]
         else:
             symbol = symbol
+        symbol = f'{symbol}_{timeframe}'
+
         cache_path = self._get_cache_path(symbol)
         df.to_csv(cache_path, index=False)
         print(f"[CACHE] Scraped and Saved {symbol} -> {cache_path}")
@@ -830,7 +839,9 @@ class OhlcvGenerator:
     def _load_single_symbol(self, config: Dict[str, Any]) -> Tuple[str, Optional[pd.DataFrame], Optional[Tuple[str, str]]]:
         
         symbol = config["original_symbol"]
-        cached_df = self._load_from_cache(symbol)
+        tf = config['original_symbol_with_time']
+
+        cached_df = self._load_from_cache(symbol, tf)
         if cached_df is not None:
             return (symbol, cached_df, None)
 
@@ -840,7 +851,7 @@ class OhlcvGenerator:
         result = loader.fetch()
 
         if isinstance(result, pd.DataFrame):
-            self._save_to_cache(symbol, result)
+            self._save_to_cache(symbol, result, tf)
             return (symbol, result, None)
         else:
             _, _, err_name, err_msg = result
@@ -858,7 +869,7 @@ class OhlcvGenerator:
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_symbol = {
-                executor.submit(self._load_single_symbol, cfg): cfg["original_symbol"]
+                executor.submit(self._load_single_symbol, cfg)
                 for cfg in self.symbol_configs
             }
 
@@ -890,13 +901,12 @@ class OhlcvGenerator:
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     generator = OhlcvGenerator(
-        symbol="VN30F1m",
-        timeframe='30m',
+        symbol=['vn30f1m', 'vn30f1m', 'hpg'],
+        timeframe=['30m', '1d', '1d'],
         time_start="2024-01-01 10:00:00",
         time_end="2026-07-15 11:00:00",
         save_data=True,
-        update_data = True,
+        update_data = False,
         max_workers=3
     )
     data = generator.generate()
-    print(data)
