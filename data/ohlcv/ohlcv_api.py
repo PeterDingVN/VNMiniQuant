@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import time
 import random
@@ -10,7 +11,8 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
-import numpy as np
+from .tradingview_socket import TvSocket
+import math
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -19,6 +21,7 @@ from urllib3.util.retry import Retry
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 YELLOW = "\033[93m"
 RED = "\033[91m"
+PINK = "\033[35m"
 GREEN = "\033[92m"
 PURPLE = "\033[95m"
 RESET = "\033[0m"
@@ -32,18 +35,14 @@ class ResolutionMap:
                     "1h": "1h", "2h": "2h", "4h": "4h", "6h": "6h", "8h": "8h", "12h": "12h",
                     "1d": "1d"
         },
-        "vietstock": { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "45m": "45",
-                        "1h": "60", "2h": "120", "3h": "180","4h": "240",
+        "trading_view": { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "45m": "45",
+                        "1h": "1H", "2h": "2H", "3h": "3H","4h": "4H",
                         "1d": "1D"
                         },
-        "simplize": {'1m': '1m', '15m':'15m',
-                     '1h':'1h',
-                     '1d': '1d', '1w': '1w'
-                     },
-        "investing": {"5m": "5", "15m": "15", "30m": "30",
-                      "1h": "60",
-                      "1d": "D"
-                      }
+        "vietstock":   { "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "45m": "45",
+                        "1h": "60", "2h": "120", "3h": "180","4h": "240",
+                        "1d": "1D"
+                        }
         }
     
     transformed_timeframe = {}
@@ -65,6 +64,33 @@ class ResolutionMap:
 
         transformed_timeframe[platform] = sorted(candidates, key=lambda x: x[0])
 
+@dataclass
+class ExchangePlatform:
+    platform = {
+         "tv_vnstock": ["HNX","HOSE","UpCoM"],
+         "tv_vnfuture": ["HNX"],
+         "tv_usstock": ["NASDAQ", "NYSE"],
+         "tv_usfuture": ["CBOE", "TVC", "COMEX"],
+         "tv_commodity": ["TVC", "FRED", "ECONOMICS"]
+        }
+
+@dataclass
+class Headers:
+    headers = {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
+            'Connection': 'keep-alive',
+            'Origin': 'https://stockchart.vietstock.vn',
+            'Referer': 'https://stockchart.vietstock.vn/',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+            'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
+            }
+
 class InputError(Exception):
     pass
 
@@ -74,7 +100,7 @@ class RobustSession:
         Return: new session, max is 4 before raising error
     """
     @staticmethod
-    def _create_robust_session(retries: int = 4, backoff_factor: float = 1) -> requests.Session:
+    def _create_robust_session(retries: int = 3, backoff_factor: float = 1) -> requests.Session:
         session = requests.Session()
         retry_strategy = Retry(
             total=retries,
@@ -111,32 +137,69 @@ class _ValidateInputParams:
         symbol must be available
     """
 
-    def __init__(self, symbols: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str):
+    def __init__(self, 
+                 symbol: Union[str, List[str]], 
+                 timeframe: Union[str, List[str]], 
+                 time_start: str, 
+                 time_end: str,
+                 username: str = "None",
+                 password: str = "None"):
         
-        if isinstance(symbols, str):
-            self.symbols = [symbols]
-        elif isinstance(symbols, list):
-            self.symbols = symbols
+        # Std symbol into list format
+        if isinstance(symbol, str):
+            self.symbol = [symbol]
+        elif isinstance(symbol, list):
+            self.symbol = symbol
+
+        # Std time start and end
         self.time_start = time_start
         self.time_end = time_end
+        if self.time_start >= self.time_end:
+            raise InputError("time_start must be earlier than time_end")
+        
+        # Std username and password for TradingView account
+        
+        if not (isinstance(username, str) and isinstance(password, str)):
+            raise InputError("username and password must be in str format")
+        if not all([username, password]):
+            self.username = None
+            self.password = None
+        elif any(x for x in [username.lower(), password.lower()]) in ['no', 'not', 'na', 'none', 'n/a', '0']:
+            self.username = None
+            self.password = None
+        self.username = username
+        self.password = password
+        
 
         # Validate timeframe and symbol
         if isinstance(timeframe, str):
-            self.timeframes = [timeframe] * len(self.symbols)
-        elif isinstance(timeframe, list) and len(timeframe)==len(self.symbols):
+            self.timeframes = [timeframe] * len(self.symbol)
+        elif isinstance(timeframe, list) and len(timeframe)==len(self.symbol):
             self.timeframes = timeframe
         else:
             raise InputError('Must provide only 1 or same number of timeframe as number of symbol')
         for tf in self.timeframes:
             self._validate_timeframe(tf)
 
+        # Early block if timeframe too far back
+        provider, _ = self._route_symbol(symbol)
+        if provider == 'vietstock' and self.timeframes[-1] != 'd' and self.time_end < '2025-06-27':
+            raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
 
         # Compute interval based on available timeframe in each platform
-        results = [self._route_symbol(sym) for sym in self.symbols]
+        results = [self._route_symbol(sym) for sym in self.symbol]
+        
+        
+        
         self.base_intervals = []
         self.requires_resampling_flags = []
         for idx, tf in enumerate(self.timeframes):
-            base, requires = self._compute_base_interval(tf, platform=results[idx][0])
+            result = results[idx][0]
+            if result == 'crypto':
+                platform = 'binance'
+            else:
+                platform = 'trading_view'
+            base, requires = self._compute_base_interval(tf, platform=platform)
             self.base_intervals.append(base)
             self.requires_resampling_flags.append(requires)
 
@@ -148,19 +211,23 @@ class _ValidateInputParams:
         # For each symbol: routing, prefixed overrides, warnings
         self.symbol_configs = []
         for sym, base_interval, requires_resampling, target_interval in zip(
-                    self.symbols, self.base_intervals, 
+                    self.symbol, self.base_intervals, 
                     self.requires_resampling_flags, 
                     self.timeframes):
             
             provider, clean_symbol = self._route_symbol(sym)
             self._print_intraday_warning(provider, clean_symbol, target_interval)
             self.symbol_configs.append({
-                "original_symbol": sym,
+                "original_symbol": sym.upper().strip(),
                 "symbol": clean_symbol,
                 "provider": provider,
                 "base_interval": base_interval,
                 "requires_resampling": requires_resampling,
                 "target_interval": target_interval,
+                "username": self.username,
+                "password": self.password,
+                "time_start": self.time_start,
+                "time_end": self.time_end,
                 "start_ts_sec": self.start_ts_sec,
                 "end_ts_sec": self.end_ts_sec,
                 "start_ts_ms": self.start_ts_ms,
@@ -203,6 +270,7 @@ class _ValidateInputParams:
 
         return best_tf, is_resampled
 
+
     def _validate_timeframe(self, timeframe: str) -> None:
         timeframe = timeframe.lower()
         pattern = r"^\d+[dmh]$"
@@ -213,9 +281,9 @@ class _ValidateInputParams:
                 f"Examples: '1d', '15m', '4h'."
             )
 
-    
 
     def _to_unix_seconds(self, time_start: str, time_end: str) -> Tuple[int, int]:
+
         try:
             vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
             dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
@@ -224,46 +292,57 @@ class _ValidateInputParams:
         except ValueError as e:
             raise InputError(
                 f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
-        if dt_start >= dt_end:
-            raise InputError("time_start must be earlier than time_end")
 
         return int(dt_start.timestamp()), int(dt_end.timestamp())
 
+
     def _route_symbol(self, symbol: str) -> Tuple[str, str]:
-        symbol_upper = symbol.upper()
+        symbol_upper = symbol.upper().strip()
 
         # Vietnam stock 
         if symbol_upper.startswith("VN:"): 
-            return "vietstock", symbol_upper[3:]
+            return "tv_vnstock", symbol_upper[3:]
         elif len(symbol_upper)==3:
-            return "vietstock", symbol_upper
+            return "tv_vnstock", symbol_upper
         elif symbol_upper in ['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']:
-            return 'vietstock', symbol_upper
+            return 'tv_vnstock', symbol_upper
         
-        # Index and commodities
-        if symbol_upper.startswith("CMX:"):
-            return "simplize", symbol_upper[4:]
-        elif symbol_upper in ['DJI', 'N255', 'NASDAQ', 'GSPC']:
-            return "simplize", symbol_upper
-        elif symbol_upper in ['Gold', 'XAUUSD']:
-            return 'simplize', 'GC=F'
+        # Vietnam futures
+        if symbol_upper in ['VN30F1M', 'VN30F2M']:
+            return "tv_vnfuture", symbol_upper
+        elif symbol_upper.startswith("VNF:"):
+            if symbol_upper[4:] not in ['VN30F1M', 'VN30F2M']:
+                raise InputError('Available Vietnam future contract: VN30F1M, VN30F2M')
+            return "tv_vnfuture", symbol_upper[4:]
         
+
         # US stock
-        if symbol_upper.startswith("US:"):
-            return "investing", symbol_upper[3:]
+        if symbol_upper.startswith("US:"): 
+            return "tv_usstock", symbol_upper[3:]
+
+        # US futures
+        if symbol_upper.startswith("USF:"): 
+            return "tv_usfuture", symbol_upper[4:]
         
-        # Crypto
+
+        # Commodities and Macro
+        if symbol_upper.startswith("C&M:"):
+            return "tv_commodity", symbol_upper[4:]
+        
+        
+        # Crypto - Binance
         crypto_suffixes = ("USDT", "USDC", "BUSD", "BTC", "ETH")
         if symbol_upper.startswith("CP:"):  
-            return "binance", symbol_upper[3:]
+            return "crypto", symbol_upper[3:]
         elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
-            return "binance", symbol_upper
+            return "crypto", symbol_upper
+
 
         raise InputError(f'\nAsset {symbol} does not exist. Please pass \n' 
-                         f'- "US:" for us stock \n' 
-                         f'- 3-letter or "VN:" for VN stock \n'
+                         f'- "US:" for us stock; "USF" for US futures \n' 
+                         f'- 3-letter or "VN:" for VN stock; "VNF" for Vietnam future \n'
                          f'- usdt, usdc, busd, btc, eth for crypto \n'
-                         f'- "CMX" for commodities and macro indexes'
+                         f'- "C&M" for commodities and macro indexes'
                          )
 
 
@@ -272,12 +351,8 @@ class _ValidateInputParams:
         is_intraday = (unit == 'm' or unit == 'h')
         if not is_intraday:
             return
-        if provider == "investing":
-            print(f"{YELLOW}[WARNING] Investing.com intraday data for {symbol} might be "
-                  f"available only since June 2020. Please double check before use!{RESET}")
-        elif provider == "vietstock":
-            print(f"{YELLOW}[WARNING] Vietstock intraday data for {symbol} might be "
-                  f"available since mid-2025 only. Please double check before use!{RESET}")
+        if provider.startswith("tv_"):
+            print(f"{PINK}[WARNING] Trading View's limit on INTRADAY DATA for {symbol} can cause unexpected error! {RESET}")
 
 
 
@@ -287,58 +362,24 @@ class _OhlcvSingleLoader:
     
     # Provider‑specific max candles per request
     MAX_LIMITS = {
-        "binance": 1000,
-        "vietstock": 1000,  
-        "investing": 1000,  
+        "crypto": 1000,
+        "trading_view": 5000
     }
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.session = RobustSession._create_robust_session()
-        self.headers_vs = {
-                    'Accept': '*/*',
-                    'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
-                    'Connection': 'keep-alive',
-                    'Origin': 'https://stockchart.vietstock.vn',
-                    'Referer': 'https://stockchart.vietstock.vn/',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Site': 'same-site',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
-                    'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-                    'sec-ch-ua-mobile': '?0',
-                    'sec-ch-ua-platform': '"Windows"'
-                    }
-        self.headers_simp = {
-                    'accept': 'application/json, text/plain, */*',
-                    'accept-language': 'en-US,en;q=0.9,vi;q=0.8',
-                    'origin': 'https://simplize.vn',
-                    'priority': 'u=1, i',
-                    'referer': 'https://simplize.vn/',
-                    'sec-ch-ua': '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-                    'sec-ch-ua-mobile': '?0',
-                    'sec-ch-ua-platform': '"Windows"',
-                    'sec-fetch-dest': 'empty',
-                    'sec-fetch-mode': 'cors',
-                    'sec-fetch-site': 'same-site',
-                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36'
-                    }
 
 
     def fetch(self) -> Union[pd.DataFrame, Tuple[str, bool, str, str]]:
-
         provider = self.config["provider"]
         try:
-            if provider == "binance":
-                df = self._fetch_binance()
-            elif provider == "vietstock":
+            if provider == "crypto":
+                df = self._fetch_crypto()
+            elif provider != 'crypto' and self.config['base_interval'] in ['1m', '3m', '5m', '15m']:
                 df = self._fetch_vietstock()
-            elif provider == "investing":
-                df = self._fetch_investing()
-            elif provider == 'simplize':
-                df = self._fetch_simplize()
             else:
-                raise ValueError(f"Unknown provider: {provider}")
+                df = self._fetch_trading_view(username=self.config['username'], password=self.config['password'])
 
             if df.empty:
                 raise ValueError("Ticker does not exist. Please check source, api url, parsing method.")
@@ -356,8 +397,8 @@ class _OhlcvSingleLoader:
             return (self.config["original_symbol"], False, error_name, error_msg)
 
     
-    # =================== Fetch Binance ======================
-    def _fetch_binance(self) -> pd.DataFrame:
+    # =================== Fetch Crypto from Binance ======================
+    def _fetch_crypto(self) -> pd.DataFrame:
 
         symbol = self.config["symbol"]
         base_interval = self.config["base_interval"]
@@ -366,7 +407,7 @@ class _OhlcvSingleLoader:
 
         resolution_map = ResolutionMap.available_timeframe['binance']
         if base_interval not in resolution_map:
-            raise ValueError(f"Vietstock does not support {self.config['target_interval']} as of no {base_interval} interval")
+            raise ValueError(f"Binance does not support {self.config['target_interval']} as of no {base_interval} interval")
         
 
         url = "https://www.binance.com/api/v3/uiKlines"
@@ -380,7 +421,7 @@ class _OhlcvSingleLoader:
                 "interval": resolution,
                 "startTime": current_start,
                 "endTime": end_ms,
-                "limit": self.MAX_LIMITS["binance"]
+                "limit": self.MAX_LIMITS["crypto"]
             }
             resp = self.session.get(url,params=params,timeout=70)
             resp.raise_for_status()
@@ -411,7 +452,7 @@ class _OhlcvSingleLoader:
                 break
             current_start = next_start
 
-            if len(data) < self.MAX_LIMITS["binance"]:
+            if len(data) < self.MAX_LIMITS["crypto"]:
                 break
 
             time.sleep(0.2)
@@ -430,10 +471,123 @@ class _OhlcvSingleLoader:
         return df
 
 
-    # ============ Fetch Vietstock ===================
+    # ============ Fetch Commodity, Stocks from Trading View ===================
+    def _fetch_trading_view(self, username:str, password:str) -> pd.DataFrame:
+        tv = TvSocket(username=username, password=password)
+
+        base_symbol = self.config["symbol"]
+
+        base_interval = self.config["base_interval"]
+        resolution_map = ResolutionMap.available_timeframe['trading_view']
+        if base_interval not in resolution_map:
+            raise ValueError(f"Trading View does not support {self.config['target_interval']} as of no {base_interval} interval")
+        interval = resolution_map[base_interval]
+
+        start_ts = int(self.config["start_ts_sec"])
+        last_ts = int(self.config["end_ts_sec"]) 
+        end_ts = int(time.time())
+
+        if base_interval[-1] == 'm':
+            total_bars = math.ceil(
+                (end_ts - start_ts) / (60 * int(base_interval[:-1]))
+            )
+        elif base_interval[-1] == 'h':
+            total_bars = math.ceil(
+                (end_ts - start_ts) / (3600 * int(base_interval[:-1]))
+            )
+        elif base_interval[-1] == 'd':
+            total_bars = math.ceil(
+                (end_ts - start_ts) / (86400 * int(base_interval[:-1]))
+            )
+        total_bars = total_bars + 1
+
+        all_exc = ExchangePlatform.platform
+
+        # =================== FILTER  ====================
+
+        # Vietnam
+        if self.config['provider'] == 'tv_vnstock':
+            symbol = "301" if base_symbol == 'UPCOMINDEX' else base_symbol
+            for exc in all_exc['tv_vnstock']:
+                try:
+                    check_data = tv.get_hist(symbol=symbol, exchange=exc, interval=interval, n_bars=total_bars)
+                    if check_data is not None and not check_data.empty:
+                        break
+                except Exception:
+                    continue  
+            else:
+                raise RuntimeError(
+                    f"Could not scrape data for Vietnam stock {base_symbol}. "
+                    f"All exchange variations failed. Check your symbol and try again later.")
+            
+        elif self.config['provider'] == 'tv_vnfuture':
+            symbol = 'VN30'
+            fut = [1 if base_symbol.endswith('F1M') else 2][0]
+            for exc in all_exc['tv_vnfuture']:
+                try:
+                    check_data = tv.get_hist(symbol=symbol, exchange=exc, interval=interval, 
+                                             n_bars=total_bars, fut_contract=fut)
+                    if check_data is not None and not check_data.empty:
+                        break
+                except Exception:
+                    continue  
+            else:
+                raise RuntimeError(
+                    f"Could not scrape data for Vietnam future {base_symbol}. "
+                    f"All exchange variations failed. Check your symbol and try again later.")
+            
+        # US - ongoing
+        if self.config['provider'] == 'tv_usstock':
+            for exc in all_exc['tv_usstock']:
+                try:
+                    print
+                    check_data = tv.get_hist(symbol=base_symbol, exchange=exc, interval=interval, n_bars=total_bars)
+                    if check_data is not None and not check_data.empty:
+                        break
+                except Exception:
+                    continue  
+            else:
+                raise RuntimeError(
+                    f"Could not scrape data for US stock {base_symbol}. "
+                    f"All exchange variations failed. Check your symbol and try again later.")
+
+        # Commodity and Macro
+        if self.config['provider'] == 'tv_commodity':
+            if base_interval[-1] != 'd':
+                raise InputError(f'Item {base_symbol} does not accept tf smaller than 1d')
+            for exc in all_exc['tv_commodity']:
+                try:
+                    check_data = tv.get_hist(symbol=base_symbol, exchange=exc, interval=interval, n_bars=total_bars)
+                    if check_data is not None and not check_data.empty:
+                        break
+                except Exception:
+                    continue  
+            else:
+                raise RuntimeError(
+                    f"Could not scrape data for commodity or macro index {base_symbol}. "
+                    f"All exchange variations failed. Check your symbol and try again later.")
+
+
+        df = check_data
+        if not df.empty:
+            start_date = datetime.fromtimestamp(start_ts).strftime('%Y-%m-%d %H:%M:%S')
+            last_date = datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M:%S')
+            df = df[df['datetime'].between(start_date, last_date)]
+            df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+            df = (df
+                .drop_duplicates(subset="datetime")
+                .sort_values("datetime")
+                .reset_index(drop=True))
+            
+            
+        return df
+    
+    # ============ Backup Fetch Vietstock for VN tf < 30m ===================
     def _fetch_vietstock(self) -> pd.DataFrame:
 
         symbol = self.config["symbol"]
+        print(f"{PINK}[WARNING] Rechanneled to Vietstock. INTRADAY DATA for {symbol} is limited to 2025-06-27!{RESET}")
+
         base_interval = self.config["base_interval"]
         start_sec = int(self.config["start_ts_sec"])
         end_sec = int(self.config["end_ts_sec"])
@@ -457,7 +611,7 @@ class _OhlcvSingleLoader:
                 "to": end_sec,
             }
             
-            resp = self.session.get(url, params=params, headers=self.headers_vs, timeout=70)
+            resp = self.session.get(url, params=params, headers=Headers.headers, timeout=70)
             resp.raise_for_status()
             data = resp.json()
 
@@ -509,172 +663,6 @@ class _OhlcvSingleLoader:
             
         return df
     
-    # ============ Fetch Vietstock ===================
-    def _fetch_simplize(self) -> pd.DataFrame:
-
-        symbol = self.config["symbol"]
-        base_interval = self.config["base_interval"]
-
-        if base_interval[-1] in (['m', 'h']):
-            raise InputError('Commodities and non-Vietnamese indexes only accepts timeframe day (d)')
-
-        start_sec = int(self.config["start_ts_sec"])
-        end_sec = int(self.config["end_ts_sec"])
-
-        resolution_map = ResolutionMap.available_timeframe['simplize']
-        if base_interval not in resolution_map:
-            raise ValueError(f"Simplize does not support {self.config['target_interval']} for the chosen ticker")
-        
-
-        url = "https://api2.simplize.vn/api/historical/prices/ohlcv"
-        all_candles = []
-        current_start = start_sec
-        resolution = resolution_map[base_interval]
-
-        while current_start < end_sec:
-
-            params = {
-                "ticker": symbol,
-                "interval": resolution,
-                "from": current_start,
-                "to": end_sec,
-            }
-            
-            resp = self.session.get(url, params=params, headers=self.headers_simp, timeout=70)
-            resp.raise_for_status()
-            data = resp.json()
-
-            if not data:
-                break
-
-            data = pd.DataFrame(data['data'], columns = ['t', 'o', 'h', 'l', 'c', 'v'])
-
-            timestamps = np.array(data.get("t", []))
-            if timestamps.size==0:
-                break
-
-            opens = np.array(data.get("o", []))
-            highs = np.array(data.get("h", []))
-            lows = np.array(data.get("l", []))
-            closes = np.array(data.get("c", []))
-            volumes = np.array(data.get("v", []))
-
-            for i, ts in enumerate(timestamps):
-                if ts > end_sec:
-                    break
-
-                all_candles.append({
-                    "datetime": ts,
-                    "open": float(opens[i]),
-                    "high": float(highs[i]),
-                    "low": float(lows[i]),
-                    "close": float(closes[i]),
-                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
-                })
-
-            
-            if timestamps[-1] >= end_sec:
-                break
-        
-            next_start = timestamps[-1] + 1
-            if next_start <= current_start:
-                break
-            current_start = next_start
-
-            time.sleep(0.2)
-
-        df = pd.DataFrame(all_candles)
-        if not df.empty:
-            df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
-            df = (df
-                .drop_duplicates(subset="datetime")
-                .sort_values("datetime")
-                .reset_index(drop=True))
-            
-        return df
-    
-
-
-    # ===================== Fetch Investing ======================
-    def _fetch_investing(self) -> pd.DataFrame:
-
-        symbol = self.config["symbol"]
-        base_interval = self.config["base_interval"]
-        start_sec = self.config["start_ts_sec"]
-        end_sec = self.config["end_ts_sec"]
-
-        res_map = ResolutionMap.available_timeframe['investing']
-        if base_interval not in res_map:
-            raise ValueError(f"Investing does not support {self.config['target_interval']} as of no {base_interval} interval")
-
-        
-        url = "https://tvc4.investing.com/127911700fc4e5afa1929fb2ab34b234/1781436887/1/1/8/history"
-        all_candles = []
-        current_start = start_sec
-        resolution = res_map[base_interval]
-
-        while current_start < end_sec:
-            params = {
-                "symbol": symbol,
-                "resolution": resolution,
-                "from": current_start,
-                "to": end_sec
-            }
-            resp = self.session.get(url, params=params, timeout=70)
-            resp.raise_for_status()
-            data = resp.json()
-
-            if data.get("s") != "ok":
-                break
-
-            timestamps = data.get("t", [])
-
-            if not timestamps:
-                break
-
-            opens = data.get("o", [])
-            highs = data.get("h", [])
-            lows = data.get("l", [])
-            closes = data.get("c", [])
-            volumes = data.get("v", [])
-
-            for i, ts in enumerate(timestamps):
-
-                if ts > end_sec:
-                    break
-
-                all_candles.append({
-                    "datetime": ts,
-                    "open": float(opens[i]),
-                    "high": float(highs[i]),
-                    "low": float(lows[i]),
-                    "close": float(closes[i]),
-                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
-                })
-
-            if timestamps[-1] >= end_sec:
-                break
-
-            next_start = timestamps[-1] + 1
-
-            if next_start <= current_start:
-                break
-
-            current_start = next_start
-
-            time.sleep(0.2)
-
-        df = pd.DataFrame(all_candles)
-        if not df.empty:
-            df["datetime"] = pd.to_datetime(
-                df["datetime"], unit="s")
-
-            df = (df
-                .drop_duplicates(subset="datetime")
-                .sort_values("datetime")
-                .reset_index(drop=True))
-
-        return df
 
     
     # =================  Standardisation & resampling  =========================
@@ -692,12 +680,12 @@ class _OhlcvSingleLoader:
         df["volume"] = df["volume"].astype(float)
 
         platform = self.config["provider"].lower()
-        if platform in ["binance", "vietstock"]:
+        if platform in ["crypto", "tv_vnstock", "tv_vnfuture", "tv_commodity"]:
             df["datetime"] = (pd.to_datetime(df["datetime"])
                               .dt.tz_localize(None)
                               + pd.Timedelta(hours=7))
 
-        elif platform == "investing":     
+        elif platform in ['tv_usstock', 'tv_usfuture']:     
             df["datetime"] = (pd.to_datetime(df["datetime"], utc=True)
                             .dt.tz_convert("America/New_York")
                             .dt.tz_localize(None))
@@ -731,12 +719,13 @@ class _OhlcvSingleLoader:
 class OhlcvGenerator:
 
     def __init__(self, 
-                 symbols: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
+                 symbol: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
                  save_data: bool = True, update_data: bool=False,
+                 username: str = "None", password: str = "None",
                  max_workers: int = 5):
         """
         Args:
-            symbols: List of ticker symbols (with optional provider prefixes).
+            symbol: List of ticker symbols (with optional provider prefixes).
             timeframe: e.g. "5m", "2h", "1d".
             time_start, time_end: Format "%Y-%m-%d %H:%M:%S".
 
@@ -751,7 +740,7 @@ class OhlcvGenerator:
 
         self.max_workers = max_workers
 
-        # Accept either a single timeframe string or a list matching symbols
+        # Accept either a single timeframe string or a list matching symbol
         if isinstance(timeframe, (str, list)):
             tf_input = timeframe
         else:
@@ -760,7 +749,8 @@ class OhlcvGenerator:
         if not time_end:
             time_end = str(pd.Timestamp.now().floor('s'))
 
-        validator = _ValidateInputParams(symbols, tf_input, time_start, time_end)
+
+        validator = _ValidateInputParams(symbol, tf_input, time_start, time_end, username, password)
 
         self.symbol_configs = validator.symbol_configs
 
@@ -800,9 +790,16 @@ class OhlcvGenerator:
         return os.path.join(self.cache_dir, f"{safe_symbol}_{tf}.csv")
 
     def _load_from_cache(self, symbol: str) -> Optional[pd.DataFrame]:
-        
+        if self.update_data:
+            return
+
+        suf = symbol.split(":", 1)[0]
+        if suf in ['VN', 'CP', 'C&M']:
+            symbol = symbol.split(":", 1)[1]
+        else:
+            symbol = symbol
         cache_path = self._get_cache_path(symbol)
-        if os.path.exists(cache_path) and self.update_data==False:
+        if os.path.exists(cache_path):
             try:
                 df = pd.read_csv(cache_path)
                 if "datetime" in df.columns:
@@ -811,13 +808,13 @@ class OhlcvGenerator:
                 return df
             except Exception as e:
                 print(f"[CACHE] Warning: could not read {cache_path}: {e}")
-        return None
+      
 
     def _save_to_cache(self, symbol: str, df: pd.DataFrame) -> None:
         if not self.save_data:
             return
         suf = symbol.split(":", 1)[0]
-        if suf in ['VN', 'US', 'CP', 'CMX']:
+        if suf in ['VN', 'CP', 'C&M']:
             symbol = symbol.split(":", 1)[1]
         else:
             symbol = symbol
@@ -856,8 +853,8 @@ class OhlcvGenerator:
     def generate(self) -> Dict[str, Union[pd.DataFrame, Tuple[str, str]]]:
 
         results = {}
-        successful_symbols = []
-        failed_symbols = []
+        successful_symbol = []
+        failed_symbol = []
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_symbol = {
@@ -870,35 +867,36 @@ class OhlcvGenerator:
                 if error is not None:
                     err_name, err_msg = error
                     results[sym] = (err_name, err_msg)
-                    failed_symbols.append((sym, err_name, err_msg))
+                    failed_symbol.append((sym, err_name, err_msg))
                 else:
                     results[sym] = df
-                    successful_symbols.append(sym)
+                    successful_symbol.append(sym)
 
         # Final console log
         total = len(self.symbol_configs)
-        success_count = len(successful_symbols)
-        print(f"{GREEN}\nSuccessfully scraped {success_count}/{total} symbols{RESET}")
-        if failed_symbols:
-            print(f"{RED}Failed symbols:{RESET}")
-            for sym, err_name, err_msg in failed_symbols:
-                print(f"'{sym}': {PURPLE}{err_name} - {err_msg}{RESET}")
+        success_count = len(successful_symbol)
+        print(f"{GREEN}\nSuccessfully scraped {success_count}/{total} symbol{RESET}")
+        if failed_symbol:
+            print(f"{RED}Failed symbol:{RESET}")
+            for sym, err_name, err_msg in failed_symbol:
+                print(f"'{(sym.split(":", 1)[1] if sym.split(":", 1)[0] in ['VN', 'CP', 'C&M'] else sym)}': {PURPLE}{err_name} - {err_msg}{RESET}")
+            sys.exit(1)
 
         return results
 
 
 # -----------------------------------------------------------------------------
-# Example usage (if run as script)
+# python -m data.ohlcv.ohlcv_api
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Demo: fetch mixed symbols with caching and resampling
     generator = OhlcvGenerator(
-        symbols="CMX:FRED:DFF",
-        timeframe='1d',
-        time_start="2025-01-01 00:00:00",
-        # time_end="2026-06-14 00:00:00",
+        symbol="VN30F1m",
+        timeframe='30m',
+        time_start="2024-01-01 10:00:00",
+        time_end="2026-07-15 11:00:00",
         save_data=True,
         update_data = True,
         max_workers=3
     )
     data = generator.generate()
+    print(data)
