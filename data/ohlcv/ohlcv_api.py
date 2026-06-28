@@ -172,16 +172,19 @@ class _ValidateInputParams:
         
 
         # Validate timeframe and symbol
-        if isinstance(timeframe, str):
+        if isinstance(timeframe, str) and len(self.symbol) >= 1:
             self.timeframes = [timeframe] * len(self.symbol)
+        elif isinstance(timeframe, list) and len(timeframe) == 1 and len(self.symbol) >= 1:
+            self.timeframes = timeframe * len(self.symbol)
+        elif isinstance(timeframe, list) and len(timeframe) > 1 and len(self.symbol) == 1:
+            self.symbol = self.symbol * len(timeframe)
+            self.timeframes = timeframe
         elif isinstance(timeframe, list) and len(timeframe)==len(self.symbol):
             self.timeframes = timeframe
         else:
             raise InputError('Must provide only 1 or same number of timeframe as number of symbol')
         for tf in self.timeframes:
             self._validate_timeframe(tf)
-
-        # Early block if timeframe too far back
         
 
         # Compute interval based on available timeframe in each platform
@@ -220,7 +223,6 @@ class _ValidateInputParams:
             self._print_intraday_warning(provider, clean_symbol, target_interval)
             self.symbol_configs.append({
                 "original_symbol": sym.upper().strip(),
-                "original_symbol_with_time": f'{sym.upper().strip()}_{target_interval}',
                 "symbol": clean_symbol,
                 "provider": provider,
                 "base_interval": base_interval,
@@ -570,7 +572,7 @@ class _OhlcvSingleLoader:
                     f"All exchange variations failed. Check your symbol and try again later.")
 
 
-        df = check_data
+        df = check_data.copy()
         if not df.empty:
             start_date = datetime.fromtimestamp(start_ts).strftime('%Y-%m-%d %H:%M:%S')
             last_date = datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M:%S')
@@ -780,16 +782,29 @@ class OhlcvGenerator:
                         "cached_data")
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _get_cache_path(self, symbol: str) -> str:
-        safe_symbol = symbol.replace("/", "_").replace(":", "_")
-        tf = None
+    def _get_cache_path(self, symbol: str, timeframe: Optional[str] = None) -> str:
+        base_symbol = symbol
+        tf = timeframe
 
-        for cfg in self.symbol_configs:
-            if cfg.get("original_symbol_with_time") == symbol:
-                tf = cfg.get("target_interval")
-                break
+        suf = base_symbol.split(":", 1)[0]
+        if suf in ['VN', 'CP', 'C&M', 'VNF']:
+            base_symbol = base_symbol.split(":", 1)[1]
+
+        if isinstance(tf, str) and tf:
+            if base_symbol.endswith(f"_{tf}"):
+                base_symbol = base_symbol[:-len(f"_{tf}")]
+            elif tf.startswith(f"{base_symbol}_"):
+                tf = tf[len(base_symbol) + 1:]
+
+        safe_symbol = base_symbol.replace("/", "_").replace(":", "_")
+
         if tf is None:
-            tf = self.timeframe if isinstance(self.timeframe, str) else (self.timeframe[0] if self.timeframe else "")
+            for cfg in self.symbol_configs:
+                if cfg.get("original_symbol_with_time") == symbol:
+                    tf = cfg.get("target_interval")
+                    break
+            if tf is None:
+                tf = self.timeframe if isinstance(self.timeframe, str) else (self.timeframe[0] if self.timeframe else "")
         return os.path.join(self.cache_dir, f"{safe_symbol}_{tf}.csv")
 
 
@@ -797,14 +812,7 @@ class OhlcvGenerator:
         if self.update_data:
             return
 
-        suf = symbol.split(":", 1)[0]
-        if suf in ['VN', 'CP', 'C&M', 'VNF']:
-            symbol = symbol.split(":", 1)[1]
-        else:
-            symbol = symbol
-        symbol = f'{symbol}_{timeframe}'
-
-        cache_path = self._get_cache_path(symbol)
+        cache_path = self._get_cache_path(symbol, timeframe)
         if os.path.exists(cache_path):
             try:
                 df = pd.read_csv(cache_path)
@@ -819,15 +827,8 @@ class OhlcvGenerator:
     def _save_to_cache(self, symbol: str, df: pd.DataFrame, timeframe: str) -> None:
         if not self.save_data:
             return
-        
-        suf = symbol.split(":", 1)[0]
-        if suf in ['VN', 'CP', 'C&M', 'VNF']:
-            symbol = symbol.split(":", 1)[1]
-        else:
-            symbol = symbol
-        symbol = f'{symbol}_{timeframe}'
 
-        cache_path = self._get_cache_path(symbol)
+        cache_path = self._get_cache_path(symbol, timeframe)
         df.to_csv(cache_path, index=False)
         print(f"[CACHE] Scraped and Saved {symbol} -> {cache_path}")
 
@@ -839,7 +840,7 @@ class OhlcvGenerator:
     def _load_single_symbol(self, config: Dict[str, Any]) -> Tuple[str, Optional[pd.DataFrame], Optional[Tuple[str, str]]]:
         
         symbol = config["original_symbol"]
-        tf = config['original_symbol_with_time']
+        tf = config['target_interval']
 
         cached_df = self._load_from_cache(symbol, tf)
         if cached_df is not None:
@@ -873,14 +874,22 @@ class OhlcvGenerator:
                 for cfg in self.symbol_configs
             }
 
-            for future in as_completed(future_to_symbol):
+
+            for idx, future in enumerate(as_completed(future_to_symbol)):
+                cfg = self.symbol_configs[idx]
+                time_start = cfg["time_start"]
+                time_end = cfg["time_end"]
+                tf = cfg['target_interval']
+
                 sym, df, error = future.result()
+
                 if error is not None:
                     err_name, err_msg = error
-                    results[sym] = (err_name, err_msg)
+                    results[f'{sym}_{tf}'] = (err_name, err_msg)
                     failed_symbol.append((sym, err_name, err_msg))
                 else:
-                    results[sym] = df
+                    results[f'{sym}_{tf}'] = df[df['datetime'].between(time_start, time_end)]
+
                     successful_symbol.append(sym)
 
         # Final console log
@@ -901,8 +910,8 @@ class OhlcvGenerator:
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     generator = OhlcvGenerator(
-        symbol=['vn30f1m', 'vn30f1m', 'hpg'],
-        timeframe=['30m', '1d', '1d'],
+        symbol=['vn30f1m', 'vn30f1m', 'cts'],
+        timeframe=['30m', '1d', '10m'],
         time_start="2024-01-01 10:00:00",
         time_end="2026-07-15 11:00:00",
         save_data=True,
