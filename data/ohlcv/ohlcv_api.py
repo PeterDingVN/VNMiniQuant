@@ -889,7 +889,6 @@ class OhlcvGenerator:
                     failed_symbol.append((sym, err_name, err_msg))
                 else:
                     results[f'{sym}_{tf}'] = df[df['datetime'].between(time_start, time_end)]
-
                     successful_symbol.append(sym)
 
         # Final console log
@@ -899,7 +898,7 @@ class OhlcvGenerator:
         if failed_symbol:
             print(f"{RED}Failed symbol:{RESET}")
             for sym, err_name, err_msg in failed_symbol:
-                print(f"'{(sym.split(":", 1)[1] if sym.split(":", 1)[0] in ['VN', 'CP', 'C&M'] else sym)}': {PURPLE}{err_name} - {err_msg}{RESET}")
+                print(f"'{(sym.split(":", 1)[1] if sym.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else sym)}': {PURPLE}{err_name} - {err_msg}{RESET}")
             sys.exit(1)
 
         return results
@@ -912,10 +911,13 @@ if __name__ == "__main__":
     generator = OhlcvGenerator(
         symbol=['vn30f1m', 'vn30f1m', 'cts'],
         timeframe=['30m', '1d', '10m'],
-        time_start="2024-01-01 10:00:00",
-        time_end="2026-07-15 11:00:00",
+        time_start="2025-11-15 10:00:00",
+        time_end="2025-12-15 11:00:00",
         save_data=True,
         update_data = False,
         max_workers=3
     )
     data = generator.generate()
+
+    for dt, val in data.items():
+        print(val)
