@@ -125,7 +125,7 @@ class FinanceMetrics:
                  df: pd.DataFrame, 
                  asset_type: str = 'vn_future', 
                  initial_capital: float = 100_000_000,
-                 exposure: float = 1.0,
+                 exposed_capital: float = 1.0,
                  currency: str = 'VND', 
                  annual_sessions_in_days: float = 252,
                  risk_free_rate: float = 0.0
@@ -138,25 +138,30 @@ class FinanceMetrics:
         self.currency = currency
         self.initial_capital = initial_capital
 
-        if exposure > 1 or exposure <=0:
+        if not (0 < exposed_capital <= 1):
             raise ValueError('You must expose >0 and <=1 of your initial capital')
-        self.exposure = exposure
+        self.exposed_capital = exposed_capital
+
         
-        if self.currency.lower() == 'usd':
-            self.initial_capital = self.initial_capital / 26_000
-        elif self.currency.lower() not in ['usd', 'vnd']:
+        if self.currency.lower() == "usd":
+            self.initial_capital /= 26_000
+        elif self.currency.lower() not in ["vnd", "usd"]:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
         if asset_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
             raise ValueError('asset type only accepts: vn_stock, us_stock, vn_future, crypto')
         
-        if asset_type == 'vn_future':
-            self.initial_capital = self.initial_capital / 100_000
-            if self.initial_capital < std_data['close'].iloc[0]:
-                raise ValueError(f'Initial capital too small to buy 1 contract at {std_data['close'].iloc[0]} points')
+        # Check cash
+        self.available_capital = self.initial_capital * self.exposed_capital
+        if asset_type == "vn_future":
+            self.available_capital = self.available_capital / 100_000
+            if self.available_capital < std_data["close"].iloc[0]:
+                raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
         else:
-            if self.initial_capital < std_data['close'].iloc[0]:
-                raise ValueError(f'Initial capital too small to buy 1 unit at price {std_data['close'].iloc[0]}')
+            if self.available_capital < std_data["close"].iloc[0]:
+                raise ValueError(f'Not enough cash to buy 1 stock/unit at {std_data["close"].iloc[0]}')
+            
+        
         
         self.one_way_fee = Fee().fee[asset_type]
 
@@ -167,19 +172,21 @@ class FinanceMetrics:
     def Gains_Calculation_Simple(self, df):
         df['pos_change'] = df['position'].diff().fillna(df['position'].iloc[0])
 
-        # Absolute PnL (1 contract)
+        # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
         df['fee'] = self.one_way_fee * df['pos_change'].abs()
-        df['gain_after_fee'] = df['gain'] - df['fee']
-        df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum()
-        df['total_equity'] = self.initial_capital + df['cum_gain_after_fee']
+        df['gain_after_fee'] = (df['gain'] - df['fee'])
+
+        # Absolute Pnl
+        df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum() 
+        df['total_equity'] = self.available_capital + df['cum_gain_after_fee']
 
         # Scaled PnL (n% capital invested, fixed-notional, no compounding)
-        # Scale by exposure over close price
-        df['scaler'] =  self.initial_capital * self.exposure / df['close']
+        # Scale by exposed_capital over close price
+        df['scaler'] =  self.available_capital / df['close']
         df['scaled_gain_after_fee'] = df['gain_after_fee'] * df['scaler']
         df['scaled_cum_gain_after_fee'] = df['scaled_gain_after_fee'].cumsum()
-        df['scaled_equity'] = self.initial_capital + df['scaled_cum_gain_after_fee']
+        df['scaled_equity'] = self.available_capital + df['scaled_cum_gain_after_fee']
         
         return df
 
@@ -214,7 +221,7 @@ class FinanceMetrics:
 
     def MDD(self):
         # Abs mdd
-        equity = self.df['total_equity']
+        equity = self.df['scaled_equity']
         peak = equity[equity!=0].cummax()
         dd_abs = (peak - equity)
         mdd_abs = dd_abs.max()
@@ -222,7 +229,7 @@ class FinanceMetrics:
         # Pct mdd
         equity_pct = self.df['scaled_equity']
         peak = equity_pct[equity_pct!=0].cummax()
-        mdd_pct = ((peak - equity_pct)/self.initial_capital * 100).max()
+        mdd_pct = ((peak - equity_pct)/self.available_capital * 100).max()
         
 
         # Date
@@ -249,7 +256,7 @@ class FinanceMetrics:
 
 
     def Profit(self):
-        final_gain = self.df['cum_gain_after_fee'].iloc[-1]
+        final_gain = self.df['scaled_cum_gain_after_fee'].iloc[-1]
 
         total_profit = final_gain
         profit_after_fee_per_year = final_gain / self.year_count
@@ -260,12 +267,12 @@ class FinanceMetrics:
 
     def Return(self):
         final_cap = self.df['scaled_equity'].iloc[-1]
-        total_ret = ((final_cap / self.initial_capital) - 1)
+        total_ret = ((final_cap / self.available_capital) - 1)
         year_no = self.year_count
 
         total_return = total_ret * 100
         return_per_year = total_return / year_no
-        cagr = ((final_cap / self.initial_capital) ** (1 / year_no) - 1)*100
+        cagr = ((final_cap / self.available_capital) ** (1 / year_no) - 1)*100
 
         return total_return, return_per_year, cagr
     
@@ -321,12 +328,14 @@ class FinanceBacktest(FinanceMetrics):
                  df: pd.DataFrame, 
                  asset_type: str, 
                  initial_capital: float = 100_000_000, 
-                 exposure: float = 1.0,
+                 exposed_capital: float = 1.0,
                  currency: str = 'VND', 
                  annual_sessions_in_days: float = 252,
                  risk_free_rate: float = 0.0
                  ):
-        super().__init__(df, asset_type, initial_capital, exposure, currency, annual_sessions_in_days, risk_free_rate)
+        super().__init__(df, asset_type, 
+                         initial_capital, exposed_capital,
+                         currency, annual_sessions_in_days, risk_free_rate)
 
     def dashboard(self):
         sharpe = self.Sharpe_after_fee()
@@ -341,10 +350,10 @@ class FinanceBacktest(FinanceMetrics):
 ======================================================
                  Financial Backtest 
 ======================================================
-    Initial capital: {self.initial_capital:,.2f}
-     Ending capital: {self.df['total_equity'].iloc[-1]:,.2f}
+    Initial capital: {self.available_capital:,.2f}
+     Ending capital: {self.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe:.2f}
-                MDD: {mdd_3[0]:.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
+                MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
       Annual Profit: {profit_3[1]:,.2f}
        Daily Profit: {profit_3[2]:,.2f}
@@ -377,7 +386,7 @@ Longest lose streak: {streak_2[1]}
         
         # 2. Drawdown
         peak = equity[equity!=0].cummax()
-        daily_dd = (peak - equity)/self.initial_capital * 100
+        daily_dd = (peak - equity)/self.available_capital * 100
         daily_dd = daily_dd.resample('D').last().dropna()
         axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4)
         axs[1].set_ylabel("Drawdown %"); axs[1].grid(True, alpha=0.3)
@@ -399,6 +408,7 @@ if __name__ == "__main__":
     FinanceBacktest(df, asset_type='vn_future', 
                     currency='vnd', 
                     initial_capital=100_000_000, 
-                    exposure=1, risk_free_rate=0).pnl_report(plot=True)
+                    exposed_capital=1,
+                    risk_free_rate=0).pnl_report(plot=False)
     
     
