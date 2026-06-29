@@ -14,7 +14,8 @@ class Fee():
         'vn_future': 0.4,
         'vn_stock': 0.5,
         'crypto': 0.00035,
-        'us_stock': 0.5
+        'us_stock': 0.5,
+        'us_future': 0.3
     }
     
 
@@ -123,7 +124,7 @@ class FinanceMetrics:
 
     def __init__(self,
                  df: pd.DataFrame, 
-                 asset_type: str = 'vn_future', 
+                 fee_type: str = 'vn_future', 
                  initial_capital: float = 100_000_000,
                  exposed_capital: float = 1.0,
                  currency: str = 'VND', 
@@ -148,12 +149,12 @@ class FinanceMetrics:
         elif self.currency.lower() not in ["vnd", "usd"]:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
-        if asset_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
-            raise ValueError('asset type only accepts: vn_stock, us_stock, vn_future, crypto')
+        if fee_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
+            raise ValueError('Fee type only accepts: vn_stock, us_stock, vn_future, crypto')
         
         # Check cash
         self.available_capital = self.initial_capital * self.exposed_capital
-        if asset_type == "vn_future":
+        if fee_type == "vn_future":
             self.available_capital = self.available_capital / 100_000
             if self.available_capital < std_data["close"].iloc[0]:
                 raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
@@ -163,7 +164,7 @@ class FinanceMetrics:
             
         
         
-        self.one_way_fee = Fee().fee[asset_type]
+        self.one_way_fee = Fee().fee[fee_type]
 
         self.df = self.Gains_Calculation_Simple(std_data)
         self.year_count = len(self.df.resample('D').sum(min_count=1).dropna())/ annual_sessions_in_days
@@ -326,14 +327,14 @@ class FinanceMetrics:
 class FinanceBacktest(FinanceMetrics):
     def __init__(self,
                  df: pd.DataFrame, 
-                 asset_type: str, 
+                 fee_type: str, 
                  initial_capital: float = 100_000_000, 
                  exposed_capital: float = 1.0,
                  currency: str = 'VND', 
                  annual_sessions_in_days: float = 252,
                  risk_free_rate: float = 0.0
                  ):
-        super().__init__(df, asset_type, 
+        super().__init__(df, fee_type, 
                          initial_capital, exposed_capital,
                          currency, annual_sessions_in_days, risk_free_rate)
 
@@ -405,7 +406,7 @@ Longest lose streak: {streak_2[1]}
 # python -m backtest.finance_backtest
 if __name__ == "__main__":
     df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\data\cached_data\dclside_s247.csv')
-    FinanceBacktest(df, asset_type='vn_future', 
+    FinanceBacktest(df, fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=100_000_000, 
                     exposed_capital=1,
