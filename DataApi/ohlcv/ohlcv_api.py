@@ -241,36 +241,8 @@ class _ValidateInputParams:
             self.base_intervals.append(base)
             self.requires_resampling_flags.append(requires)
 
-        # # Convert timestamps to seconds and milliseconds precision
-        # self.start_ts_sec, self.end_ts_sec = self._to_unix_seconds(time_start, time_end)
-        # self.start_ts_ms = self.start_ts_sec * 1000
-        # self.end_ts_ms = self.end_ts_sec * 1000
-
         # For each symbol: routing, prefixed overrides, warnings
         self.symbol_configs = []
-        # for sym, base_interval, requires_resampling, target_interval in zip(
-        #             self.symbol, self.base_intervals, 
-        #             self.requires_resampling_flags, 
-        #             self.timeframes):
-            
-        #     provider, clean_symbol = self._route_symbol(sym)
-        #     self._print_intraday_warning(provider, clean_symbol, target_interval)
-        #     self.symbol_configs.append({
-        #         "original_symbol": sym.upper().strip(),
-        #         "symbol": clean_symbol,
-        #         "provider": provider,
-        #         "base_interval": base_interval,
-        #         "requires_resampling": requires_resampling,
-        #         "target_interval": target_interval,
-        #         "username": self.username,
-        #         "password": self.password,
-        #         "time_start": self.time_start,
-        #         "time_end": self.time_end,
-        #         "start_ts_sec": self.start_ts_sec,
-        #         "end_ts_sec": self.end_ts_sec,
-        #         "start_ts_ms": self.start_ts_ms,
-        #         "end_ts_ms": self.end_ts_ms,
-        #     })
         for sym, base_interval, requires_resampling, target_interval, start_t, end_t in zip(
                     self.symbol, self.base_intervals, 
                     self.requires_resampling_flags, 
@@ -973,15 +945,13 @@ class OhlcvGenerator:
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     generator = OhlcvGenerator(
-        symbol=['vn30f1m', 'vn30f1m', 'cts'],
-        timeframe=['30m', '1d', '10m'],
-        time_start=["2025-11-15 10:00:00", "2026-01-15 10:00:00", "2025-12-15 10:00:00"],
-        time_end=["2026-05-15 11:00:00", None, None],
+        symbol=['vn30f1m', 'cts'],
+        timeframe=['1d', '10m'],
+        time_start=["2025-01-15 10:00:00", "2025-12-15 10:00:00"],
+        time_end=["2025-12-09 09:00:00", None],
         save_data=True,
         update_data = False,
         max_workers=3
     )
     data = generator.generate()
-
-    for dt, val in data.items():
-        print(val)
+    print(data)
