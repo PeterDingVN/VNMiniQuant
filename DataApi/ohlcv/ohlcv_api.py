@@ -151,11 +151,6 @@ class _ValidateInputParams:
         elif isinstance(symbol, list):
             self.symbol = symbol
 
-        # # Std time start and end
-        # self.time_start = time_start
-        # self.time_end = time_end
-        # if self.time_start >= self.time_end:
-        #     raise InputError("time_start must be earlier than time_end")
         
         # Std username and password for TradingView account
         
@@ -256,7 +251,7 @@ class _ValidateInputParams:
                 raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
             
             # Convert specific list-unpacked timestamps to seconds and milliseconds precision
-            start_ts_sec, end_ts_sec = self._to_unix_seconds(start_t, end_t)
+            start_ts_sec, end_ts_sec = _ValidateInputParams._to_unix_seconds(start_t, end_t)
             start_ts_ms = start_ts_sec * 1000
             end_ts_ms = end_ts_sec * 1000
 
@@ -274,7 +269,7 @@ class _ValidateInputParams:
                 "start_ts_sec": start_ts_sec,
                 "end_ts_sec": end_ts_sec,
                 "start_ts_ms": start_ts_ms,
-                "end_ts_ms": end_ts_ms,
+                "end_ts_ms": end_ts_ms
             })
 
 
@@ -323,21 +318,6 @@ class _ValidateInputParams:
                 f"positive integer followed by 'd' (days), 'm' (minutes), or 'h' (hours). "
                 f"Examples: '1d', '15m', '4h'."
             )
-
-
-    def _to_unix_seconds(self, time_start: str, time_end: str) -> Tuple[int, int]:
-
-        try:
-            vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-            dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
-            dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
-
-        except ValueError as e:
-            raise InputError(
-                f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
-
-        return int(dt_start.timestamp()), int(dt_end.timestamp())
-
 
     def _route_symbol(self, symbol: str) -> Tuple[str, str]:
         symbol_upper = symbol.upper().strip()
@@ -395,13 +375,30 @@ class _ValidateInputParams:
         if not is_intraday:
             return
         if provider.startswith("tv_"):
-            print(f"{PINK}[WARNING] Trading View's limit on INTRADAY DATA for {symbol} can cause unexpected error! {RESET}")
+            print(f"{YELLOW}[WARNING] Trading View's limit on INTRADAY DATA for {symbol} can cause unexpected error! {RESET}")
 
+
+    @staticmethod
+    def _to_unix_seconds(time_start: str, time_end: str) -> Tuple[int, int]:
+
+        try:
+            vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+            dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+            dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+
+        except ValueError as e:
+            raise InputError(
+                f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
+
+        return int(dt_start.timestamp()), int(dt_end.timestamp())
+
+
+    
 
 
 
 # ================ Component 2: Single symbol loader (extraction worker) =====================
-class _OhlcvSingleLoader:
+class _SingleScraper:
     
     # Provider‑specific max candles per request
     MAX_LIMITS = {
@@ -629,7 +626,7 @@ class _OhlcvSingleLoader:
     def _fetch_vietstock(self) -> pd.DataFrame:
 
         symbol = self.config["symbol"]
-        print(f"{PINK}[WARNING] Rechanneled to Vietstock. INTRADAY DATA for {symbol} is limited to 2025-06-27!{RESET}")
+        print(f"{YELLOW}[WARNING] Rechanneled to Vietstock. INTRADAY DATA for {symbol} is limited to 2025-06-27!{RESET}")
 
         base_interval = self.config["base_interval"]
         start_sec = int(self.config["start_ts_sec"])
@@ -852,9 +849,10 @@ class OhlcvGenerator:
         if os.path.exists(cache_path):
             try:
                 df = pd.read_csv(cache_path)
+                if df.empty:
+                    raise ValueError(f"Dataframe of {symbol}_{timeframe} is empty")
                 if "datetime" in df.columns:
                     df["datetime"] = pd.to_datetime(df["datetime"])
-                print(f"[CACHE] Loaded {symbol} from {cache_path}")
                 return df
             except Exception as e:
                 print(f"[CACHE] Warning: could not read {cache_path}: {e}")
@@ -866,30 +864,54 @@ class OhlcvGenerator:
 
         cache_path = self._get_cache_path(symbol, timeframe)
         df.to_csv(cache_path, index=False)
-        print(f"[CACHE] Scraped and Saved {symbol} -> {cache_path}")
 
     def _apply_rate_delay(self, provider: str) -> None:
         if provider in ("vietstock", "investing"):
             delay = random.uniform(0.1, 0.5)
             time.sleep(delay)
 
+
     def _load_single_symbol(self, config: Dict[str, Any]) -> Tuple[str, Optional[pd.DataFrame], Optional[Tuple[str, str]]]:
-        
         symbol = config["original_symbol"]
         tf = config['target_interval']
 
+        req_start = pd.to_datetime(config["time_start"])
+        req_end = pd.to_datetime(config["time_end"])
+
         cached_df = self._load_from_cache(symbol, tf)
-        if cached_df is not None:
-            return (symbol, cached_df, None)
 
-        self._apply_rate_delay(config["provider"])
+        if cached_df is not None and not cached_df.empty:
+            cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
+            cur_data_date = cached_df["datetime"].min()
+            cur_data_last_date = cached_df["datetime"].max()
 
-        loader = _OhlcvSingleLoader(config)
-        result = loader.fetch()
+            # Check if the request date is fully within the cached range
+            if req_start < cur_data_date or req_end > cur_data_last_date:
+                req_start = min(cur_data_date, req_start)
+                req_end = max(cur_data_last_date, req_end)
+            else:
+                print(f"[CACHE] Loaded {symbol}_{tf} sucessfully")
+                return (symbol, cached_df, None)
+
+        # Modify config for scraping
+        fetch_config = config.copy()
+        fetch_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
+        fetch_config["time_end"] = req_end.strftime("%Y-%m-%d %H:%M:%S")
+        fetch_config["start_ts_sec"], fetch_config["end_ts_sec"] = _ValidateInputParams._to_unix_seconds(str(req_start), str(req_end))
+        fetch_config["start_ts_ms"] = fetch_config["start_ts_sec"] * 1000
+        fetch_config["end_ts_ms"] = fetch_config["end_ts_sec"] * 1000
+
+
+        self._apply_rate_delay(fetch_config["provider"])
+        scraper = _SingleScraper(fetch_config)
+        result = scraper.fetch()
 
         if isinstance(result, pd.DataFrame):
+            result["datetime"] = pd.to_datetime(result["datetime"])
             self._save_to_cache(symbol, result, tf)
+            print(f"[CACHE] Scraped and Loaded {symbol}_{tf} successfully")
             return (symbol, result, None)
+        
         else:
             _, _, err_name, err_msg = result
             return (symbol, None, (err_name, err_msg))
@@ -948,7 +970,7 @@ if __name__ == "__main__":
         symbol=['vn30f1m', 'cts'],
         timeframe=['1d', '10m'],
         time_start=["2025-01-15 10:00:00", "2025-12-15 10:00:00"],
-        time_end=["2025-12-09 09:00:00", None],
+        time_end=["2025-12-02 09:00:00", "2026-06-29 09:00:00"],
         save_data=True,
         update_data = False,
         max_workers=3
