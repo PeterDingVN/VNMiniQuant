@@ -1,11 +1,29 @@
+# ============================== BELOW IS EXPECTED FRAMEWORK FOR AN ALPHA =========================================
+"""
+class <Any Name>:
+    # the name passed into Config file must match the "classname"
+    # The name of this .py file must match that inside Config file "filename"
+
+    def __init__(self, config: dict):
+        self.cfg = config   # ------ This is "params" in Config file, it's a dict
+
+    def run(self, df): # ----------- This method must be left as "run", other name can cause error
+                       # ----------- The method can receive a dataframe with O, h, l, c, v only
+
+        # <Logic>
+
+        return pos   # ------------- The alpha must return position that the alpha generates
+    
+"""
+
+# ========================  SAMPLE ALPHA  ============================
 import pandas as pd
 import numpy as np
 
 
-class DonchianBreakout:
-
+class AlphaMain:
     def __init__(self, config: dict):
-        self.cfg = config
+        self.cfg = config  
     
     def run(self, df_):
         don_lookback = self.cfg["don_lookback"]
@@ -204,9 +222,6 @@ class DonchianBreakout:
 
         # clean NaNs
         pos = np.nan_to_num(pos, nan=0.0)
-        df['position'] = pos
-
-        df_ = df.reset_index()[['datetime', 'close', 'position']]
 
         return pos
     
