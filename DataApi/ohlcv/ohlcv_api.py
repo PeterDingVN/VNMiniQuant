@@ -927,14 +927,12 @@ class OhlcvGenerator:
         failed_symbol = []
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_symbol = {
-                executor.submit(self._load_single_symbol, cfg)
-                for cfg in self.symbol_configs
-            }
+            future_to_cfg = {executor.submit(self._load_single_symbol, cfg): cfg
+                            for cfg in self.symbol_configs
+                                }
 
-
-            for idx, future in enumerate(as_completed(future_to_symbol)):
-                cfg = self.symbol_configs[idx]
+            for future in as_completed(future_to_cfg):
+                cfg = future_to_cfg[future]
                 time_start = cfg["time_start"]
                 time_end = cfg["time_end"]
                 tf = cfg['target_interval']
@@ -969,8 +967,8 @@ if __name__ == "__main__":
     generator = OhlcvGenerator(
         symbol=['vn30f1m', 'cts'],
         timeframe=['1d', '10m'],
-        time_start=["2025-01-15 10:00:00", "2025-12-15 10:00:00"],
-        time_end=["2025-12-02 09:00:00", "2026-06-29 09:00:00"],
+        time_start=["2024-12-31 10:00:00", "2025-12-15 10:00:00"],
+        time_end=["2026-01-19 10:00:00", "2026-06-29 09:00:00"],
         save_data=True,
         update_data = False,
         max_workers=3
