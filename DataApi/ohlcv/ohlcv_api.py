@@ -823,7 +823,7 @@ class OhlcvGenerator:
         if suf in ['VN', 'CP', 'C&M', 'VNF']:
             base_symbol = base_symbol.split(":", 1)[1]
 
-        if isinstance(tf, str) and tf:
+        if isinstance(tf, str):
             if base_symbol.endswith(f"_{tf}"):
                 base_symbol = base_symbol[:-len(f"_{tf}")]
             elif tf.startswith(f"{base_symbol}_"):
