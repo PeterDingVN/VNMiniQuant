@@ -908,6 +908,12 @@ class OhlcvGenerator:
 
         if isinstance(result, pd.DataFrame):
             result["datetime"] = pd.to_datetime(result["datetime"])
+            result = (
+                    pd.concat([cached_df, result], ignore_index=True)
+                    .drop_duplicates()
+                    .reset_index(drop=True)
+                    .sort_values(by='datetime')
+                    )
             self._save_to_cache(symbol, result, tf)
             print(f"[CACHE] Scraped and Loaded {symbol}_{tf} successfully")
             return (symbol, result, None)
@@ -965,10 +971,10 @@ class OhlcvGenerator:
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     generator = OhlcvGenerator(
-        symbol=['vn30f1m', 'cts'],
-        timeframe=['1d', '10m'],
-        time_start=["2024-12-31 10:00:00", "2025-12-15 10:00:00"],
-        time_end=["2026-01-19 10:00:00", "2026-06-29 09:00:00"],
+        symbol=['cts'],
+        timeframe=['10m'],
+        time_start=["2025-08-01 10:00:00"],
+        time_end=["2025-10-15 10:00:00"],
         save_data=True,
         update_data = False,
         max_workers=3
