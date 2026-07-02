@@ -403,13 +403,17 @@ Longest lose streak: {streak_2[1]}
 
 
 
-# python -m backtest.finance_backtest
+# python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\data\cached_data\dclside_s247.csv')
-    FinanceBacktest(df, fee_type='vn_future', 
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\s241.csv')
+    rep = FinanceBacktest(df, fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=100_000_000, 
                     exposed_capital=1,
-                    risk_free_rate=0).pnl_report(plot=False)
+                    risk_free_rate=0)
+    
+    out = rep.pnl_report(plot=True)
+    
+
     
     
