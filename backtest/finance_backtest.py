@@ -163,7 +163,6 @@ class FinanceMetrics:
                 raise ValueError(f'Not enough cash to buy 1 stock/unit at {std_data["close"].iloc[0]}')
             
         
-        
         self.one_way_fee = Fee().fee[fee_type]
 
         self.df = self.Gains_Calculation_Simple(std_data)
@@ -324,9 +323,8 @@ class FinanceMetrics:
 
 
 
-class FinanceBacktest(FinanceMetrics):
-    def __init__(self,
-                 df: pd.DataFrame, 
+class FinanceBacktest:
+    def __init__(self, 
                  fee_type: str, 
                  initial_capital: float = 100_000_000, 
                  exposed_capital: float = 1.0,
@@ -334,25 +332,36 @@ class FinanceBacktest(FinanceMetrics):
                  annual_sessions_in_days: float = 252,
                  risk_free_rate: float = 0.0
                  ):
-        super().__init__(df, fee_type, 
-                         initial_capital, exposed_capital,
-                         currency, annual_sessions_in_days, risk_free_rate)
 
-    def dashboard(self):
-        sharpe = self.Sharpe_after_fee()
-        mdd_3 = self.MDD()
-        profit_3 = self.Profit()
-        return_3 = self.Return()
-        hitrate_2 = self.Hitrate()
-        trade_2 = self.Total_Trade()
-        streak_2 = self.Longest_streak()
+        self.fee_type = fee_type
+        self.initial_capital = initial_capital
+        self.exposed_capital = exposed_capital
+        self.currency = currency
+        self.annual_sessions_in_days = annual_sessions_in_days
+        self.risk_free_rate = risk_free_rate
+
+    def dashboard(self, data: pd.DataFrame):
+        fin_bt = FinanceMetrics(df=data, 
+                                fee_type=self.fee_type, 
+                                initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+                                currency=self.currency,
+                                annual_sessions_in_days=self.annual_sessions_in_days,
+                                risk_free_rate=self.risk_free_rate)
+
+        sharpe = fin_bt.Sharpe_after_fee()
+        mdd_3 = fin_bt.MDD()
+        profit_3 = fin_bt.Profit()
+        return_3 = fin_bt.Return()
+        hitrate_2 = fin_bt.Hitrate()
+        trade_2 = fin_bt.Total_Trade()
+        streak_2 = fin_bt.Longest_streak()
 
         return f"""
 ======================================================
                  Financial Backtest 
 ======================================================
-    Initial capital: {self.available_capital:,.2f}
-     Ending capital: {self.df['scaled_equity'].iloc[-1]:,.2f}
+    Initial capital: {fin_bt.available_capital:,.2f}
+     Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
@@ -370,15 +379,22 @@ Longest lose streak: {streak_2[1]}
 
 """
 
-    def plot_equity(self):
+    def plot_equity(self, data: pd.DataFrame):
+        fin_bt = FinanceMetrics(df=data, 
+                                fee_type=self.fee_type, 
+                                initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+                                currency=self.currency,
+                                annual_sessions_in_days=self.annual_sessions_in_days,
+                                risk_free_rate=self.risk_free_rate)
+        
         figsize = (25,5)
         
-        sharpe = self.Sharpe_after_fee()
+        sharpe = fin_bt.Sharpe_after_fee()
         
         _, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={"height_ratios": [6, 4]}, sharex=True)
         
         # 1. Return
-        equity = self.df['scaled_equity'][~self.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
+        equity = fin_bt.df['scaled_equity'][~fin_bt.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
         equity = equity.resample('D').last().dropna()
         ret = (equity / equity.iloc[0] - 1) * 100
         axs[0].plot(ret.index, ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
@@ -387,7 +403,7 @@ Longest lose streak: {streak_2[1]}
         
         # 2. Drawdown
         peak = equity[equity!=0].cummax()
-        daily_dd = (peak - equity)/self.available_capital * 100
+        daily_dd = (peak - equity)/fin_bt.available_capital * 100
         daily_dd = daily_dd.resample('D').last().dropna()
         axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4)
         axs[1].set_ylabel("Drawdown %"); axs[1].grid(True, alpha=0.3)
@@ -395,24 +411,24 @@ Longest lose streak: {streak_2[1]}
         plt.tight_layout(); plt.show()
 
     # --- PNL REPORT MAIN ---
-    def pnl_report(self, plot=True):
-        dash = self.dashboard()
+    def pnl_report(self, data: pd.DataFrame, plot=True):
+        dash = self.dashboard(data)
         print(dash)
         if plot:
-            self.plot_equity()
+            self.plot_equity(data)
 
 
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
     df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\s241.csv')
-    rep = FinanceBacktest(df, fee_type='vn_future', 
+    rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=100_000_000, 
                     exposed_capital=1,
                     risk_free_rate=0)
     
-    out = rep.pnl_report(plot=True)
+    out = rep.pnl_report(data=df, plot=True)
     
 
     
