@@ -1,11 +1,3 @@
-# Call AlphaBase:
-# - Gen data framework
-# - Call Alpha auto
-# Option for train test
-
-
-
-
 from AlphaBase import AlphaBase
 import pandas as pd
 
@@ -15,15 +7,18 @@ class MyAlpha(AlphaBase):
     def __init__(self):
         super().__init__()
 
+# Gen Data
     def generate_data(self, dt_name: str = None):
         if dt_name:
             return self.dm_list[dt_name] # # Double check how Tickers are called in Helper.py
         return self.dm_list
     
+# Gen Pos from data
     def generate_pos(self, data):
         pos = self.alpha.run(data)
         return pos
     
+# Gen backtest info
     def backtest(self, data: pd.DataFrame, plot_pnl: bool = True):
         if plot_pnl:
             self.bt_fin.pnl_report(data, plot=True)
