@@ -145,13 +145,14 @@ class WalkForwardSplit:
 # ----------------------
 #       TEST CASE
 # ----------------------
+
+# python -m TrainingEngine.utils.data_split
+
 if __name__ == '__main__':
-    from DataApi import AccessData
-    agr = AccessData(symbol='AGR').access_data()[0]['data']
+    import pandas as pd
+    agr = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\CTS_10m.csv')
     agr_ls = WalkForwardSplit(k_fold=3, test_size=0.5).split(data=agr)
-
-    print(agr_ls[-3].tail(), len(agr_ls[-3]))
-    print(agr_ls[-2].iloc[-659:, :].head(), len(agr_ls[-2]))
+    print(agr_ls)
 
 
-# Run cmd: python -m strategy_backtest.strategy_utils.walk_forward_split
+
