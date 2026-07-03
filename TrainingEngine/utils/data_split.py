@@ -1,0 +1,157 @@
+import warnings
+
+class TrainTestSplit:
+    """
+        Simple time-series train/test split with optional lookahead trimming.
+    
+        Params:
+        -------
+        test-size: the size of OOS test set used at the very end of optimization/training/fitting process
+        has_lookahead: used in case target var used future data to generate signal, useful to completely detach
+                       train from test set (no relationship -> less bias)
+        lookahead: only usable if has_lookahead=True, setting the number of bars to be dropped as gap/interval btw
+                   train and test sets.
+
+        Output:
+        -------
+        IS and OOS sets  OR
+        Train and Test sets 
+    
+    """
+
+    def __init__(self,
+                test_size: float,
+                has_lookahead: bool = False,
+                lookahead: int = 0):
+
+        assert (0 < test_size < 1)
+        assert lookahead >= 0
+
+        self.test_size = test_size
+        self.has_lookahead = has_lookahead
+        self.lookahead = lookahead if has_lookahead else 0
+
+    def split(self, data):
+
+        n = len(data)
+        if n == 0:
+            raise ValueError("Data is empty.")
+
+        test_start = int(n * (1 - self.test_size))
+        train_end = test_start - self.lookahead
+        if train_end <= 0:
+            raise ValueError(
+                "Training set becomes empty after lookahead trimming."
+            )
+        
+        train = data.iloc[:train_end]
+        test = data.iloc[test_start:]
+        return train, test
+
+
+
+class WalkForwardSplit:
+    """
+    Walk-forward splits the raw input data into K different datasets, each has train and test sets.
+    Its only usage is to split raw big data into K chunks, no internal splitting (train-val split) 
+        for each fold is performed.
+    The aim is to provide data for walk forward performance evaluation Financially and Statistically.
+
+
+    Parameters
+    ----------
+    test_size : float
+        Fraction of each fold used as test
+
+    k_fold : int
+        Number of folds
+
+    gap: int
+        Number of interval periods omitted between each k fold to prevent data leakage
+
+    Output
+    ---------
+    A list of dataframe.
+    """
+
+    def __init__(self, test_size:float=0.2, 
+                        gap: int= 0, 
+                        k_fold:int=5):
+        
+        # Input arg -> any unmentioned params will fall back to default above
+        self.test_size = test_size
+        self.gap = gap
+        self.k_fold = k_fold
+
+
+    def split(self, data):
+        self._validate_raw_inputs(data)
+
+        n = len(data)
+
+        # Train and test size of each window (each fold) 
+        # -> only use for validation not a real train-test split
+        train_len = (n - self.gap) / (1 + self.k_fold * self.test_size / (1-self.test_size))
+        test_len = train_len * self.test_size / (1-self.test_size)
+        self._warn_small_folds(train_len, test_len)
+
+        # derive window size from k_fold
+        window_size = int(train_len + test_len) + self.gap
+
+        # ensure no overlap of test sets, default step-size = test-len instead of >
+        step_size = int(test_len)
+
+        splits = []
+        start = 0
+        for i in range(self.k_fold):
+            end = start + window_size
+            if i+1 == self.k_fold:
+                end = n
+                
+            slice_ = data.iloc[start:end+1]
+            splits.append(slice_)
+
+            start += step_size  # move forward
+
+        return splits
+
+    # -------------------------
+    # Validation logic
+    # -------------------------
+
+    def _validate_raw_inputs(self, data):
+        if data is None or len(data) == 0:
+            raise ValueError("Data must be non-empty")
+
+        if not (0 < self.test_size < 1):
+            raise ValueError("test_size must be between 0 and 1")
+
+        if not isinstance(self.k_fold, int) and self.k_fold <=0:
+            raise ValueError("k_fold must be positive integer")
+        
+        if not isinstance(self.gap, int) and self.gap < 0:
+            raise ValueError("gap must be integer and be at least 0") 
+
+
+    def _warn_small_folds(self, train_len, test_len):
+        if test_len + train_len < 500:
+            warnings.warn(
+                f"Data total size ({int(train_len+test_len)}) is small with train {int(train_len)}" 
+                f"and {int(test_len)} → noisy evaluation",
+                UserWarning
+            )
+
+
+# ----------------------
+#       TEST CASE
+# ----------------------
+if __name__ == '__main__':
+    from DataApi import AccessData
+    agr = AccessData(symbol='AGR').access_data()[0]['data']
+    agr_ls = WalkForwardSplit(k_fold=3, test_size=0.5).split(data=agr)
+
+    print(agr_ls[-3].tail(), len(agr_ls[-3]))
+    print(agr_ls[-2].iloc[-659:, :].head(), len(agr_ls[-2]))
+
+
+# Run cmd: python -m strategy_backtest.strategy_utils.walk_forward_split
