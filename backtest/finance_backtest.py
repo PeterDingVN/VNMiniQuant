@@ -164,12 +164,17 @@ class FinanceMetrics:
             
         
         self.one_way_fee = Fee().fee[fee_type]
+        self.fee_type = fee_type
 
         self.df = self.Gains_Calculation_Simple(std_data)
         self.year_count = len(self.df.resample('D').sum(min_count=1).dropna())/ annual_sessions_in_days
 
         
     def Gains_Calculation_Simple(self, df):
+        if self.fee_type == 'vn_stock':
+            # negate < 0 pos in vn stock market
+            df['position'] = np.where(df['position']<0, 0, df['position'])
+
         df['pos_change'] = df['position'].diff().fillna(df['position'].iloc[0])
 
         # Gain
