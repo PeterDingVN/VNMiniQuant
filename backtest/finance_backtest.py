@@ -211,12 +211,14 @@ class FinanceMetrics:
 
         daily_ret = daily_return - daily_rf
         std_ret = daily_ret.std()
+        std_loss_ret = daily_ret[daily_ret<0].std()
 
         if std_ret == 0 or np.isnan(std_ret):
             return np.nan
 
         sharpe = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
-        return sharpe
+        sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
+        return sharpe, sortino
 
 
     def MDD(self):
@@ -348,7 +350,7 @@ class FinanceBacktest:
                                 annual_sessions_in_days=self.annual_sessions_in_days,
                                 risk_free_rate=self.risk_free_rate)
 
-        sharpe = fin_bt.Sharpe_after_fee()
+        sharpe_and_sor = fin_bt.Sharpe_after_fee()
         mdd_3 = fin_bt.MDD()
         profit_3 = fin_bt.Profit()
         return_3 = fin_bt.Return()
@@ -362,7 +364,8 @@ class FinanceBacktest:
 ======================================================
     Initial capital: {fin_bt.available_capital:,.2f}
      Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
-             Sharpe: {sharpe:.2f}
+             Sharpe: {sharpe_and_sor[0]:.2f}
+            Sortino: {sharpe_and_sor[1]:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
       Annual Profit: {profit_3[1]:,.2f}
@@ -389,7 +392,7 @@ Longest lose streak: {streak_2[1]}
         
         figsize = (25,5)
         
-        sharpe = fin_bt.Sharpe_after_fee()
+        sharpe = fin_bt.Sharpe_after_fee()[0]
         
         _, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={"height_ratios": [6, 4]}, sharex=True)
         
