@@ -760,7 +760,7 @@ class OhlcvGenerator:
 
     def __init__(self, 
                  symbol: Union[str, List[str]], timeframe: Union[str, List[str]], time_start: str, time_end: str=None,
-                 save_data: bool = True, update_data: bool=False,
+                 update_data: bool=False,
                  username: str = "None", password: str = "None",
                  max_workers: int = 5):
         """
@@ -769,13 +769,11 @@ class OhlcvGenerator:
             timeframe: e.g. "5m", "2h", "1d".
             time_start, time_end: Format "%Y-%m-%d %H:%M:%S".
 
-            save_data: If True, store CSV results in 'cached_data' folder.
             update_data: If True, scrape web for new data no matter if CSV data existed or not.
 
             max_workers: Thread pool size.
         """
 
-        self.save_data = save_data
         self.update_data = update_data
 
         self.max_workers = max_workers
@@ -842,9 +840,6 @@ class OhlcvGenerator:
 
 
     def _load_from_cache(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
-        if self.update_data:
-            return
-
         cache_path = self._get_cache_path(symbol, timeframe)
         if os.path.exists(cache_path):
             try:
@@ -859,9 +854,6 @@ class OhlcvGenerator:
       
 
     def _save_to_cache(self, symbol: str, df: pd.DataFrame, timeframe: str) -> None:
-        if not self.save_data:
-            return
-
         cache_path = self._get_cache_path(symbol, timeframe)
         df.to_csv(cache_path, index=False)
 
@@ -881,6 +873,10 @@ class OhlcvGenerator:
         cached_df = self._load_from_cache(symbol, tf)
 
         if cached_df is not None and not cached_df.empty:
+            if not self.update_data:
+                print(f"[CACHE] Loaded {symbol}_{tf} sucessfully")
+                return (symbol, cached_df, None)
+            
             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
             cur_data_date = cached_df["datetime"].min()
             cur_data_last_date = cached_df["datetime"].max()
@@ -975,7 +971,6 @@ if __name__ == "__main__":
         timeframe=['10m'],
         time_start=["2025-08-01 10:00:00"],
         time_end=["2025-10-15 10:00:00"],
-        save_data=True,
         update_data = False,
         max_workers=3
     )
