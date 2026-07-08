@@ -306,8 +306,10 @@ class FinanceMetrics:
         # Hitrate
         long_hitrate = (long_wins / long_trades * 100) if long_trades > 0 else 0.0
         short_hitrate = (short_wins / short_trades * 100) if short_trades > 0 else 0.0
+        hitrate_total = ((long_wins+short_wins)/(long_trades+short_trades) * 100) if (long_trades > 0 or short_trades > 0) \
+                                                                                  else 0
 
-        return long_hitrate, short_hitrate
+        return long_hitrate, short_hitrate, hitrate_total
 
 
     def Longest_streak(self):
@@ -380,6 +382,7 @@ class FinanceBacktest:
                CAGR: {return_3[2]:.2f}%
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
+      Total Hitrate: {hitrate_2[2]:.2f}%
  Longest win streak: {streak_2[0]}
 Longest lose streak: {streak_2[1]}
         Long trades: {trade_2[0]}
