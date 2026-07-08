@@ -204,7 +204,7 @@ class FinanceMetrics:
 
 
         if len(daily_gain) < 2:
-            return np.nan
+            return np.nan, np.nan
         
         yearly_max = daily_close.groupby(daily_close.index.year).transform('max')
         cash_max = yearly_max.mean()
@@ -219,7 +219,7 @@ class FinanceMetrics:
         std_loss_ret = daily_ret[daily_ret<0].std()
 
         if std_ret == 0 or np.isnan(std_ret):
-            return np.nan
+            return np.nan, np.nan
 
         sharpe = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
         sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
