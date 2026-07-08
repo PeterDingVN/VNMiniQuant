@@ -1,7 +1,9 @@
 from AlphaBase import AlphaBase
+from TrainingEngine import TrainTA, TrainTestSplit
+
 import pandas as pd
 
-class MyAlpha(AlphaBase):
+class AlphaCore(AlphaBase):
 
 # CONFIG
     def __init__(self):
@@ -13,31 +15,52 @@ class MyAlpha(AlphaBase):
             return self.dm_list[dt_name] # # Double check how Tickers are called in Helper.py
         return self.dm_list
     
-# Gen Pos from data
-    def generate_pos(self, data):
-        pos = self.alpha.run(data)
-        return pos
-    
-# Gen backtest info
-    def backtest(self, data: pd.DataFrame, plot_pnl: bool = True):
-        if plot_pnl:
-            self.bt_fin.pnl_report(data, plot=True)
-        self.bt_fin.pnl_report(data, plot=False)
+# TA
+    def train_ta(self, data: pd.DataFrame, param_range: dict):
+        train = TrainTA()
+        train.start_training(data, param_range)
+
+    def backtest_ta(self, data: pd.DataFrame, plot_pnl: bool = True):
+        oos_size = TrainTA().__dict__['oos_ratio']
+        dt_list = TrainTestSplit(test_size=oos_size).split(data)
+
+        for idx, df in enumerate(dt_list):
+            if idx == 0:
+                print("******  TRAINING RESULT ******")
+            else:
+                print("******  TEST RESULT ******")
+            pos = self.alpha.run(df)
+            df['position'] = pos
+            
+            if plot_pnl:
+                self.bt_fin.pnl_report(df, plot=True)
+            self.bt_fin.pnl_report(df, plot=False)
+        # them stat tets, future leak test, overfit test
         
 
-        # them stat tets, future leak test, overfit test
+# ML -> coming soon ...
+    def backtest_ml(self):
+        pass
     
-    # Them ham train? live_trade? 
+    
 
 
 # python -m ExeCore.exe
+# check capital scale
+# check ticker call
 if __name__ == '__main__':
-    obj = MyAlpha()
-    data_list = obj.generate_data()
-    data = data_list['BSI_1d']
+    alpha = AlphaCore()
+    data_list = alpha.generate_data()
+    data = data_list['VCI_5m']
 
-    pos = obj.generate_pos(data)
-    data['position'] = pos
+    # param_range = {
+    # "don_lookback": (10, 100),
+    # "ema_lookback": (10, 200),
+    # "atr_lookback": (5, 100),
+    # "long_atr_mult": (0.5, 7.0, 0.05),
+    # "short_atr_mult": (0.5, 7.0, 0.05),
+    # }
+    # alpha.train_ta(data, param_range=param_range)
 
-    obj.backtest(data, plot_pnl=True)
+    alpha.backtest_ta(data, plot_pnl=True)
     
