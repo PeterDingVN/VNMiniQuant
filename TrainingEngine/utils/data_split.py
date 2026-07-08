@@ -1,5 +1,3 @@
-import warnings
-
 class TrainTestSplit:
     """
         Simple time-series train/test split with optional lookahead trimming.
@@ -93,7 +91,6 @@ class WalkForwardSplit:
         # -> only use for validation not a real train-test split
         train_len = (n - self.gap) / (1 + self.k_fold * self.test_size / (1-self.test_size))
         test_len = train_len * self.test_size / (1-self.test_size)
-        self._warn_small_folds(train_len, test_len)
 
         # derive window size from k_fold
         window_size = int(train_len + test_len) + self.gap
@@ -133,13 +130,6 @@ class WalkForwardSplit:
             raise ValueError("gap must be integer and be at least 0") 
 
 
-    def _warn_small_folds(self, train_len, test_len):
-        if test_len + train_len < 500:
-            warnings.warn(
-                f"Data total size ({int(train_len+test_len)}) is small with train {int(train_len)}" 
-                f"and {int(test_len)} → noisy evaluation",
-                UserWarning
-            )
 
 
 # ----------------------
