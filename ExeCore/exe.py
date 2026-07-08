@@ -47,7 +47,6 @@ class AlphaCore(AlphaBase):
 
 # python -m ExeCore.exe
 # check capital scale
-# check ticker call
 if __name__ == '__main__':
     alpha = AlphaCore()
     data_list = alpha.generate_data()
