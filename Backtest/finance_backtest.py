@@ -8,6 +8,12 @@ import pandas as pd
 from dataclasses import dataclass
 
 # Helper
+# --- Font Size Configuration ---
+TITLE_SIZE = 15
+LABEL_SIZE = 16.5
+TICK_SIZE = 16.5
+LEGEND_SIZE = 16.5
+
 @dataclass
 class Fee():
     fee = {
@@ -398,26 +404,43 @@ Longest lose streak: {streak_2[1]}
                                 annual_sessions_in_days=self.annual_sessions_in_days,
                                 risk_free_rate=self.risk_free_rate)
         
-        figsize = (25,5)
+        figsize = (22, 10)
         
         sharpe = fin_bt.Sharpe_after_fee()[0]
         
         _, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={"height_ratios": [6, 4]}, sharex=True)
         
+
         # 1. Return
         equity = fin_bt.df['scaled_equity'][~fin_bt.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
         equity = equity.resample('D').last().dropna()
         ret = (equity / equity.iloc[0] - 1) * 100
+        
         axs[0].plot(ret.index, ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
-        axs[0].set_ylabel("Return (%)")
-        axs[0].legend(); axs[0].grid(True, alpha=0.3)
+        
+        # Make fonts larger for Return plot
+        axs[0].set_title("Strategy Performance", fontsize=TITLE_SIZE)
+        axs[0].set_ylabel("Return (%)", fontsize=LABEL_SIZE)
+        axs[0].tick_params(axis='both', labelsize=TICK_SIZE)
+        axs[0].legend(fontsize=LEGEND_SIZE, loc="upper left")
+        axs[0].grid(True, alpha=0.3)
         
         # 2. Drawdown
         peak = equity[equity!=0].cummax()
         daily_dd = (peak - equity)/fin_bt.available_capital * 100
         daily_dd = daily_dd.resample('D').last().dropna()
-        axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4)
-        axs[1].set_ylabel("Drawdown %"); axs[1].grid(True, alpha=0.3)
+        
+        axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4, label="Drawdown")
+        
+        # Make fonts larger for Drawdown plot
+        axs[1].set_ylabel("Drawdown %", fontsize=LABEL_SIZE)
+        axs[1].set_xlabel("Date", fontsize=LABEL_SIZE)  # Added X-label for the bottom plot
+        axs[1].tick_params(axis='both', labelsize=TICK_SIZE)
+        axs[1].legend(fontsize=LEGEND_SIZE, loc="lower left")
+        axs[1].grid(True, alpha=0.3)
+        
+        # Optional: Standard convention is to have drawdown go downwards
+        axs[1].invert_yaxis()
 
         plt.tight_layout(); plt.show()
 
