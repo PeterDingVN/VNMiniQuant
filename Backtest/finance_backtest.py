@@ -242,9 +242,7 @@ class FinanceMetrics:
             ret = self.Return()[1]
         else:
             ret = self.Return()[2]
-
         mdd = self.MDD()[1]
-
         return ret/mdd if mdd != 0 else 0
 
 
