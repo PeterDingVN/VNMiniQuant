@@ -84,6 +84,9 @@ class StandardizeInput:
             raise ValueError(
                 f"Missing required column(s): {', '.join(missing_cols)}"
             )
+        
+        # take necessary cols
+        df = df[StandardizeInput.REQUIRED_COLS]
 
         # convert datetime
         try:
@@ -139,12 +142,12 @@ class FinanceMetrics:
                  fee_type: str = 'vn_future', 
                  initial_capital: float = 100_000_000,
                  exposed_capital: float = 1.0,
-                 fixed_notional: bool = True,
+                 fixed_allocation: bool = True,
                  currency: str = 'VND', 
                  risk_free_rate: float = 0.0
                  ):
         
-        self.fixed_notional = fixed_notional
+        self.fixed_allocation = fixed_allocation
         
         std_data = StandardizeInput.column_std(df)
 
@@ -174,6 +177,7 @@ class FinanceMetrics:
         # Check cash
         self.available_capital = self.initial_capital * self.exposed_capital
         if fee_type == "vn_future":
+            self.initial_capital = self.initial_capital / 100_000
             self.available_capital = self.available_capital / 100_000
             if self.available_capital < std_data["close"].iloc[0]:
                 raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
@@ -194,21 +198,21 @@ class FinanceMetrics:
         # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
         df['fee'] = self.one_way_fee * df['pos_change'].abs()
-        df['gain_after_fee'] = df['gain'] - df['fee']
+        df['gain_after_fee'] = df['gain'] - df['fee'] 
 
         # Absolute Pnl
         df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum().ffill().fillna(0)
         df['total_equity'] = self.available_capital + df['cum_gain_after_fee']
 
-        # Scale by exposed_capital over close price
 
+        # Scale by exposed_capital over close price
         # Fix notional 
-        if self.fixed_notional:
+        if self.fixed_allocation:
             df['scaler'] =  self.available_capital / df['close']
 
         # Growing equity
         else:
-            df['scaler'] = (df['total_equity'] * self.self.exposed_capital) / df['close']
+            df['scaler'] = (df['total_equity'] * self.exposed_capital) / df['close']
 
         df['scaled_gain_after_fee'] = df['gain_after_fee'] * df['scaler']
         df['scaled_cum_gain_after_fee'] = df['scaled_gain_after_fee'].cumsum().ffill().fillna(0)
@@ -218,22 +222,18 @@ class FinanceMetrics:
 
 
     def Sharpe_after_fee(self):
-        
         daily_gain = (self.df['scaled_gain_after_fee'].resample('D').sum(min_count=1).dropna())
         daily_close = (self.df['close'].resample('D').last().dropna())
         daily_gain, daily_close = daily_gain.align(daily_close,join='inner')
 
-
         if len(daily_gain) < 2:
             return np.nan, np.nan
         
-        yearly_max = daily_close.groupby(daily_close.index.year).transform('max')
-        cash_max = yearly_max.mean()
+        cash_max = daily_close.max()
         year_total = self.year_count
 
         daily_return = daily_gain / cash_max / year_total
         daily_rf = (1 + self.rf_rate) ** (1 / self.trade_period) - 1
-
 
         daily_ret = daily_return - daily_rf
         std_ret = daily_ret.std()
@@ -247,7 +247,13 @@ class FinanceMetrics:
         return sharpe, sortino
 
 
-    def MDD(self): # FIXED MDD -> when not fixed position size -> divide different
+    def Calmar(self):
+        ret = self.Return()[1]
+        mdd = self.MDD()[1]
+        return ret / mdd if (ret and mdd) else 0
+    
+
+    def MDD(self):
         # Abs mdd
         equity = self.df['scaled_equity']
         peak = equity[equity!=0].cummax()
@@ -255,7 +261,7 @@ class FinanceMetrics:
         mdd_abs = dd_abs.max()
         
         # Pct mdd
-        if self.fixed_notional:
+        if self.fixed_allocation:
             cash_max = self.available_capital
         else:
             cash_max = peak
@@ -291,23 +297,23 @@ class FinanceMetrics:
 
         total_profit = final_gain
         profit_after_fee_per_year = final_gain / self.year_count
-        profit_after_fee_per_day = final_gain / (self.year_count * self.trade_period)
 
-        return total_profit, profit_after_fee_per_year, profit_after_fee_per_day
+        return total_profit, profit_after_fee_per_year
 
 
     def Return(self):
-        final_cap = self.df['scaled_equity'].iloc[-1]
-        init_cap = self.df['scaled_equity'].iloc[0]
-        total_ret = ((final_cap / init_cap) - 1)
+        daily_close = (self.df['close'].resample('D').last().dropna())
+        cash_max = daily_close.max()
         year_no = self.year_count
 
-        total_return = total_ret * 100
+        final_gain = self.Profit()[0]
+ 
+        total_return = final_gain / cash_max * 100
         return_per_year = total_return / year_no
-        cagr = ((final_cap / self.available_capital) ** (1 / year_no) - 1)*100
+        cagr = ((final_gain / cash_max) ** (1 / year_no) - 1)*100
 
         return total_return, return_per_year, cagr
-    
+
     
     def Hitrate(self):
         positions = self.df['position'].values
@@ -363,44 +369,48 @@ class FinanceBacktest:
                  initial_capital: float = 100_000_000, 
                  exposed_capital: float = 1.0,
                  currency: str = 'VND', 
-                 fixed_notional: bool = True,
+                 fixed_allocation: bool = True,
                  risk_free_rate: float = 0.0
                  ):
 
         self.fee_type = fee_type
         self.initial_capital = initial_capital
         self.exposed_capital = exposed_capital
-        self.fixed_notional = fixed_notional
+        self.fixed_allocation = fixed_allocation
         self.currency = currency
         self.risk_free_rate = risk_free_rate
 
     def dashboard(self, data: pd.DataFrame):
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
-                                initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+                                initial_capital=self.initial_capital, 
+                                exposed_capital=self.exposed_capital,
                                 currency=self.currency,
-                                fixed_notional=self.fixed_notional,
+                                fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
 
-        # Them Margin
-        # Them Calmar
-        # Sua Return (no CAGR in fixed pos), CAGR in fixed pos
         sharpe_and_sor = fin_bt.Sharpe_after_fee()
+        calmar = fin_bt.Calmar()
         mdd_3 = fin_bt.MDD()
         return_3 = fin_bt.Return()
+        profit_3 = fin_bt.Profit()
         hitrate_2 = fin_bt.Hitrate()
         trade_2 = fin_bt.Total_Trade()
         streak_2 = fin_bt.Longest_streak()
 
+
+# Them Calmar, Return (Profit%) and CAGR if grow equity, Margin
         return f"""
 ======================================================
                  Financial Backtest 
 ======================================================
-    Initial capital: {fin_bt.available_capital:,.2f}
+    Initial capital: {fin_bt.initial_capital:,.2f}
      Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe_and_sor[0]:.2f}
             Sortino: {sharpe_and_sor[1]:.2f}
+             Calmar: {calmar:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
+       Total Profit: {profit_3[0]:,.2f}
        Total Return: {return_3[0]:.2f}%
       Annual Return: {return_3[1]:.2f}%
                CAGR: {return_3[2]:.2f}%
@@ -417,9 +427,10 @@ Longest lose streak: {streak_2[1]}
     def plot_equity(self, data: pd.DataFrame):
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
-                                initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+                                initial_capital=self.initial_capital, 
+                                exposed_capital=self.exposed_capital,
                                 currency=self.currency,
-                                fixed_notional=self.fixed_notional,
+                                fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
         
         figsize = (22, 10)
@@ -477,10 +488,13 @@ if __name__ == "__main__":
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=100_000_000, 
-                    exposed_capital=1,
+                    exposed_capital=1.0,
+                    fixed_allocation=True,
                     risk_free_rate=0)
-    
+
     out = rep.pnl_report(data=df, plot=True)
+
+    
 
 # HINT for SYS
 # import numpy as np
