@@ -141,7 +141,7 @@ class FinanceMetrics:
                  df: pd.DataFrame, 
                  fee_type: str = 'vn_future', 
                  initial_capital: float = 100_000_000,
-                 exposed_capital: float = 1.0,
+                 allocation_per_trade: float = 1.0,
                  fixed_allocation: bool = True,
                  currency: str = 'VND', 
                  risk_free_rate: float = 0.0
@@ -161,9 +161,9 @@ class FinanceMetrics:
         self.currency = currency
         self.initial_capital = initial_capital
 
-        if not (0 < exposed_capital <= 1):
+        if not (0 < allocation_per_trade <= 1):
             raise ValueError('You must expose >0 and <=1 of your initial capital')
-        self.exposed_capital = exposed_capital
+        self.allocation_per_trade = allocation_per_trade
 
         
         if self.currency.lower() == "usd":
@@ -175,16 +175,15 @@ class FinanceMetrics:
             raise ValueError('Fee type only accepts: vn_stock, us_stock, vn_future, crypto')
         
         # Check cash
-        self.available_capital = self.initial_capital * self.exposed_capital
+        self.available_capital = self.initial_capital * self.allocation_per_trade
+
         if fee_type == "vn_future":
             self.initial_capital = self.initial_capital / 100_000
             self.available_capital = self.available_capital / 100_000
-            if self.available_capital < std_data["close"].iloc[0]:
-                raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
-        else:
-            if self.available_capital < std_data["close"].iloc[0]:
-                raise ValueError(f'Not enough cash to buy 1 stock/unit at {std_data["close"].iloc[0]}')
-            
+
+        if self.available_capital < std_data["close"].iloc[0]:
+            raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
+
         
         self.one_way_fee = Fee().fee[fee_type]
 
@@ -198,41 +197,32 @@ class FinanceMetrics:
         # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
         df['fee'] = self.one_way_fee * df['pos_change'].abs()
-        df['gain_after_fee'] = df['gain'] - df['fee'] 
+        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.01)
 
         # Absolute Pnl
         df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum().ffill().fillna(0)
-        df['total_equity'] = self.available_capital + df['cum_gain_after_fee']
+        df['total_equity'] = self.initial_capital + df['cum_gain_after_fee']
 
 
-        # Scale by exposed_capital over close price
+        # Scale by allocation_per_trade over close price
         # Fix notional 
         if self.fixed_allocation:
             df['scaler'] =  self.available_capital / df['close']
 
         # Growing equity
         else:
-            df['scaler'] = (df['total_equity'] * self.exposed_capital) / df['close']
+            df['scaler'] = (df['total_equity'] * self.allocation_per_trade) / df['close']
 
         df['scaled_gain_after_fee'] = df['gain_after_fee'] * df['scaler']
         df['scaled_cum_gain_after_fee'] = df['scaled_gain_after_fee'].cumsum().ffill().fillna(0)
-        df['scaled_equity'] = self.available_capital + df['scaled_cum_gain_after_fee']
+        df['scaled_equity'] = self.initial_capital + df['scaled_cum_gain_after_fee']
         
         return df
 
 
     def Sharpe_after_fee(self):
         daily_gain = (self.df['scaled_gain_after_fee'].resample('D').sum(min_count=1).dropna())
-        daily_close = (self.df['close'].resample('D').last().dropna())
-        daily_gain, daily_close = daily_gain.align(daily_close,join='inner')
-
-        if len(daily_gain) < 2:
-            return np.nan, np.nan
-        
-        cash_max = daily_close.max()
-        year_total = self.year_count
-
-        daily_return = daily_gain / cash_max / year_total
+        daily_return = daily_gain / self.available_capital
         daily_rf = (1 + self.rf_rate) ** (1 / self.trade_period) - 1
 
         daily_ret = daily_return - daily_rf
@@ -246,11 +236,6 @@ class FinanceMetrics:
         sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
         return sharpe, sortino
 
-
-    def Calmar(self):
-        ret = self.Return()[1]
-        mdd = self.MDD()[1]
-        return ret / mdd if (ret and mdd) else 0
     
 
     def MDD(self):
@@ -302,49 +287,35 @@ class FinanceMetrics:
 
 
     def Return(self):
-        daily_close = (self.df['close'].resample('D').last().dropna())
-        cash_max = daily_close.max()
+        equity = self.df['scaled_equity'].iloc[-1]
         year_no = self.year_count
-
-        final_gain = self.Profit()[0]
  
-        total_return = final_gain / cash_max * 100
+        total_return = ((equity / self.initial_capital) - 1) * 100
         return_per_year = total_return / year_no
-        cagr = ((final_gain / cash_max) ** (1 / year_no) - 1)*100
+
+        cagr = ((equity / self.initial_capital) ** (1 / year_no) - 1)*100
 
         return total_return, return_per_year, cagr
 
     
     def Hitrate(self):
-        positions = self.df['position'].values
-        gains = self.df['gain_after_fee'].values
-        signs = np.sign(positions)
-        sign_changes = np.diff(signs, prepend=signs[0] + 1) != 0
-        block_ids = np.cumsum(sign_changes)
-        trade_gains = np.bincount(block_ids, weights=gains)[1:]
-        block_signs = signs[sign_changes]
+        longs = self.df[self.df['position']>0]['gain_after_fee']
+        shorts = self.df[self.df['position']<0]['gain_after_fee']
+        alls = self.df[self.df['position']!=0]['gain_after_fee']
+        # Long hitrate
+        long_hitrate = len(longs[longs>0])/len(longs) * 100 if len(longs)>0 else 0
 
-        # Long win
-        long_mask = block_signs > 0
-        long_trades = np.sum(long_mask)
-        long_wins = np.sum(long_mask & (trade_gains > 0))
+        # Short hitrate
+        short_hitrate = len(shorts[shorts>0])/len(shorts) * 100 if len(shorts)>0 else 0
 
-        # Short win
-        short_mask = block_signs < 0
-        short_trades = np.sum(short_mask)
-        short_wins = np.sum(short_mask & (trade_gains > 0))
-
-        # Hitrate
-        long_hitrate = (long_wins / long_trades * 100) if long_trades > 0 else 0.0
-        short_hitrate = (short_wins / short_trades * 100) if short_trades > 0 else 0.0
-        hitrate_total = ((long_wins+short_wins)/(long_trades+short_trades) * 100) if (long_trades > 0 or short_trades > 0) \
-                                                                                  else 0
+        # Total hr
+        hitrate_total = len(alls[alls>0])/len(alls) * 100 if len(alls)>0 else 0
 
         return long_hitrate, short_hitrate, hitrate_total
 
 
     def Longest_streak(self):
-        active_gains = self.df['gain_after_fee'].to_numpy()
+        active_gains = self.df['gain_after_fee'].resample('D').sum(min_count=1).dropna().to_numpy()
         
         if active_gains.size == 0:
             return 0, 0
@@ -367,7 +338,7 @@ class FinanceBacktest:
     def __init__(self, 
                  fee_type: str, 
                  initial_capital: float = 100_000_000, 
-                 exposed_capital: float = 1.0,
+                 allocation_per_trade: float = 1.0,
                  currency: str = 'VND', 
                  fixed_allocation: bool = True,
                  risk_free_rate: float = 0.0
@@ -375,7 +346,7 @@ class FinanceBacktest:
 
         self.fee_type = fee_type
         self.initial_capital = initial_capital
-        self.exposed_capital = exposed_capital
+        self.allocation_per_trade = allocation_per_trade
         self.fixed_allocation = fixed_allocation
         self.currency = currency
         self.risk_free_rate = risk_free_rate
@@ -384,13 +355,12 @@ class FinanceBacktest:
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
                                 initial_capital=self.initial_capital, 
-                                exposed_capital=self.exposed_capital,
+                                allocation_per_trade=self.allocation_per_trade,
                                 currency=self.currency,
                                 fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
 
         sharpe_and_sor = fin_bt.Sharpe_after_fee()
-        calmar = fin_bt.Calmar()
         mdd_3 = fin_bt.MDD()
         return_3 = fin_bt.Return()
         profit_3 = fin_bt.Profit()
@@ -399,7 +369,6 @@ class FinanceBacktest:
         streak_2 = fin_bt.Longest_streak()
 
 
-# Them Calmar, Return (Profit%) and CAGR if grow equity, Margin
         return f"""
 ======================================================
                  Financial Backtest 
@@ -408,7 +377,6 @@ class FinanceBacktest:
      Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe_and_sor[0]:.2f}
             Sortino: {sharpe_and_sor[1]:.2f}
-             Calmar: {calmar:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
        Total Return: {return_3[0]:.2f}%
@@ -417,18 +385,17 @@ class FinanceBacktest:
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
       Total Hitrate: {hitrate_2[2]:.2f}%
- Longest win streak: {streak_2[0]}
-Longest lose streak: {streak_2[1]}
-        Long trades: {trade_2[0]}
-       Short trades: {trade_2[1]}
-
+        Longest Win: {streak_2[0]} days
+       Longest Loss: {streak_2[1]} days
+        Long Trades: {trade_2[0]}
+       Short Trades: {trade_2[1]}
 """
 
     def plot_equity(self, data: pd.DataFrame):
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
                                 initial_capital=self.initial_capital, 
-                                exposed_capital=self.exposed_capital,
+                                allocation_per_trade=self.allocation_per_trade,
                                 currency=self.currency,
                                 fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
@@ -484,17 +451,23 @@ Longest lose streak: {streak_2[1]}
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\DCLSide.csv')
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\SuperMac.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
-                    initial_capital=100_000_000, 
-                    exposed_capital=1.0,
+                    initial_capital=1_000_000_000, 
+                    allocation_per_trade=0.9,
                     fixed_allocation=True,
                     risk_free_rate=0)
 
-    out = rep.pnl_report(data=df, plot=True)
+    out = rep.pnl_report(data=df, plot=False)
 
     
+# TASK
+# - Fee for vietnam market
+# - Pos never -1
+# - T+2.5 negate pos if change too frequent
+
+
 
 # HINT for SYS
 # import numpy as np
@@ -663,7 +636,7 @@ if __name__ == "__main__":
 #                  df: pd.DataFrame, 
 #                  fee_type: str = 'vn_future', 
 #                  initial_capital: float = 100_000_000,
-#                  exposed_capital: float = 1.0,
+#                  allocation_per_trade: float = 1.0,
 #                  currency: str = 'VND', 
 #                  risk_free_rate: float = 0.0
 #                  ):
@@ -674,9 +647,9 @@ if __name__ == "__main__":
 #         self.currency = currency
 #         self.initial_capital = initial_capital
 
-#         if not (0 < exposed_capital <= 1):
+#         if not (0 < allocation_per_trade <= 1):
 #             raise ValueError('You must expose >0 and <=1 of your initial capital')
-#         self.exposed_capital = exposed_capital
+#         self.allocation_per_trade = allocation_per_trade
 
 #         if self.currency.lower() == "usd":
 #             self.initial_capital /= 26_000
@@ -686,7 +659,7 @@ if __name__ == "__main__":
 #         if fee_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
 #             raise ValueError('Fee type only accepts: vn_stock, us_stock, vn_future, crypto')
         
-#         self.available_capital = self.initial_capital * self.exposed_capital
+#         self.available_capital = self.initial_capital * self.allocation_per_trade
 #         if fee_type == "vn_future":
 #             self.available_capital = self.available_capital / 100_000
 #             if self.available_capital < std_data["close"].iloc[0]:
@@ -910,14 +883,14 @@ if __name__ == "__main__":
 #     def __init__(self, 
 #                  fee_type: str, 
 #                  initial_capital: float = 100_000_000, 
-#                  exposed_capital: float = 1.0,
+#                  allocation_per_trade: float = 1.0,
 #                  currency: str = 'VND', 
 
 #                  risk_free_rate: float = 0.0
 #                  ):
 #         self.fee_type = fee_type
 #         self.initial_capital = initial_capital
-#         self.exposed_capital = exposed_capital
+#         self.allocation_per_trade = allocation_per_trade
 #         self.currency = currency
 #         self.trade_period = annual_sessions_in_days
 #         self.risk_free_rate = risk_free_rate
@@ -925,7 +898,7 @@ if __name__ == "__main__":
 #     def dashboard(self, data: pd.DataFrame):
 #         fin_bt = FinanceMetrics(df=data, 
 #                                 fee_type=self.fee_type, 
-#                                 initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+#                                 initial_capital=self.initial_capital, allocation_per_trade=self.allocation_per_trade,
 #                                 currency=self.currency,
 #                                 annual_sessions_in_days=self.trade_period,
 #                                 risk_free_rate=self.risk_free_rate)
@@ -965,7 +938,7 @@ if __name__ == "__main__":
 #     def plot_equity(self, data: pd.DataFrame):
 #         fin_bt = FinanceMetrics(df=data, 
 #                                 fee_type=self.fee_type, 
-#                                 initial_capital=self.initial_capital, exposed_capital=self.exposed_capital,
+#                                 initial_capital=self.initial_capital, allocation_per_trade=self.allocation_per_trade,
 #                                 currency=self.currency,
 #                                 annual_sessions_in_days=self.trade_period,
 #                                 risk_free_rate=self.risk_free_rate)
@@ -1022,7 +995,7 @@ if __name__ == "__main__":
 #         fee_type='vn_stock', 
 #         currency='vnd', 
 #         initial_capital=100_000_000, 
-#         exposed_capital=1,
+#         allocation_per_trade=1,
 #         risk_free_rate=0
 #     )
     
