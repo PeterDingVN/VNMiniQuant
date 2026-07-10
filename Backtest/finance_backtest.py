@@ -236,7 +236,17 @@ class FinanceMetrics:
         sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
         return sharpe, sortino
 
-    
+
+    def Calmar(self):
+        if self.fixed_allocation:
+            ret = self.Return()[1]
+        else:
+            ret = self.Return()[2]
+
+        mdd = self.MDD()[1]
+
+        return ret/mdd if mdd != 0 else 0
+
 
     def MDD(self):
         # Abs mdd
@@ -275,6 +285,11 @@ class FinanceMetrics:
                     ).sum()
 
         return long_count, short_count
+    
+    def Trade_per_day(self):
+        all_trades = self.Total_Trade()[0] + self.Total_Trade()[1]
+        all_days = self.year_count * self.trade_period
+        return all_trades / all_days if all_days > 0 else 0
 
 
     def Profit(self):
@@ -359,24 +374,33 @@ class FinanceBacktest:
                                 currency=self.currency,
                                 fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
+        
+        name = self.fee_type.replace('_', ' ').title()
 
         sharpe_and_sor = fin_bt.Sharpe_after_fee()
+        calmar = fin_bt.Calmar()
         mdd_3 = fin_bt.MDD()
+
         return_3 = fin_bt.Return()
         profit_3 = fin_bt.Profit()
+
         hitrate_2 = fin_bt.Hitrate()
+
         trade_2 = fin_bt.Total_Trade()
+        tpd = fin_bt.Trade_per_day()
+
         streak_2 = fin_bt.Longest_streak()
 
 
         return f"""
 ======================================================
-                 Financial Backtest 
+             Financial Backtest {name}
 ======================================================
     Initial capital: {fin_bt.initial_capital:,.2f}
      Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe_and_sor[0]:.2f}
             Sortino: {sharpe_and_sor[1]:.2f}
+             Calmar: {calmar:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
        Total Return: {return_3[0]:.2f}%
@@ -387,6 +411,7 @@ class FinanceBacktest:
       Total Hitrate: {hitrate_2[2]:.2f}%
         Longest Win: {streak_2[0]} days
        Longest Loss: {streak_2[1]} days
+      Trade per Day: {tpd:.2f}
         Long Trades: {trade_2[0]}
        Short Trades: {trade_2[1]}
 """
@@ -454,8 +479,8 @@ if __name__ == "__main__":
     df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\SuperMac.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
-                    initial_capital=1_000_000_000, 
-                    allocation_per_trade=0.9,
+                    initial_capital=10_000_000_000, 
+                    allocation_per_trade=1,
                     fixed_allocation=True,
                     risk_free_rate=0)
 
