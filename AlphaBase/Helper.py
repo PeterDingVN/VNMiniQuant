@@ -73,7 +73,7 @@ class StandardizedDataDict(dict):
             if self._normalize_symbol(internal_key) == norm_key or self._normalize_symbol(internal_key).startswith(norm_key):
                 return super().__getitem__(internal_key)
 
-        raise KeyError(f"Symbol variation '{key}' could not be resolved to any loaded dataset.")
+        raise KeyError(f"Unable to resolve '{key}', please check if {key} is in config file 'data'")
 
     def __contains__(self, key):
         if not isinstance(key, str):
