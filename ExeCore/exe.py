@@ -3,6 +3,9 @@ from TrainingEngine import TrainTA, TrainTestSplit
 
 import pandas as pd
 
+BLUE = "\033[38;5;45m"
+RESET = "\033[0m"
+
 class AlphaCore(AlphaBase):
 
 # CONFIG
@@ -16,25 +19,36 @@ class AlphaCore(AlphaBase):
         return self.dm_list
     
 # TA
-    def train_ta(self, data: pd.DataFrame, param_range: dict):
-        train = TrainTA()
+    def train_ta(self, data: pd.DataFrame, param_range: dict,
+                 oos_ratio: float = 0.15,
+                 w4w_val_ratio: float = 0.15,
+                 w4w_gap: int = 0,
+                 n_fold: int = 5,
+                 n_trials: int = 110,
+                 opt_dir: str = 'maximize',
+                 opt_metric: str = 'sharpe'):
+        train = TrainTA(oos_ratio = oos_ratio,
+                 w4w_val_ratio = w4w_val_ratio,
+                 w4w_gap = w4w_gap,
+                 n_fold = n_fold,
+                 n_trials = n_trials,
+                 opt_dir = opt_dir,
+                 opt_metric = opt_metric)
         train.start_training(data, param_range)
 
     def backtest_ta(self, data: pd.DataFrame, plot_pnl: bool = True):
         oos_size = TrainTA().__dict__['oos_ratio']
-        dt_list = TrainTestSplit(test_size=oos_size).split(data)
+        train_df, test_df = TrainTestSplit(test_size=oos_size).split(data)
 
-        for idx, df in enumerate(dt_list):
-            if idx == 0:
-                print("******  TRAINING RESULT ******")
-            else:
-                print("******  TEST RESULT ******")
+        for label, df in (("TRAINING RESULT", train_df), ("TEST RESULT", test_df)):
+            print(' ')
+            print(f"{BLUE}*****************  {label} *****************{RESET}")
             pos = self.alpha.run(df)
-            df['position'] = pos
+            df = df.copy()
+            df.loc[:, 'position'] = pos
+
+            self.bt_fin.pnl_report(df, plot=plot_pnl)
             
-            if plot_pnl:
-                self.bt_fin.pnl_report(df, plot=True)
-            self.bt_fin.pnl_report(df, plot=False)
         # them stat tets, future leak test, overfit test
         
 
