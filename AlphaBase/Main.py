@@ -8,10 +8,8 @@ from DataApi import OhlcvGenerator
 from Backtest import FinanceBacktest
 from .Helper import StandardizedDataDict
 
-ALPHA_DIR = Path(__file__).resolve().parent.parent/ "Alpha" # --> Change this to alpha_sample
+ALPHA_DIR = Path(__file__).resolve().parent.parent/ "alpha_sample" # --> Change this to alpha_sample
 
-
-# Config ta/ml used for Stat test later
 
 class Data:
     @staticmethod
