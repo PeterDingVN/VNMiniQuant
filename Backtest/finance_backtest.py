@@ -4,13 +4,16 @@ import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+class LengthError(Exception):
+    pass
 
 import pandas as pd
 
 from dataclasses import dataclass
 
 
-# ======================================  Helper =======================================
+
+# ========================================  SUPPORTING FUNCTIONS =======================================
 # Plot config - font size
 TITLE_SIZE = 15
 LABEL_SIZE = 16.5
@@ -60,6 +63,8 @@ class StandardizeInput:
     def column_std(df: pd.DataFrame) -> pd.DataFrame:
 
         df = df.copy()
+        if len(df) < 10:
+            raise LengthError("Input data is too short. Please double check your alpha")
 
         # lowcase
         df.columns = [str(col).strip().lower() for col in df.columns]
@@ -224,7 +229,6 @@ class FinanceMetrics:
     
 
     def Margin(self):
-        
         trade_turnover = (self.df['pos_change'].abs() * self.df['close']).sum()
         total_profit_after_fee = self.df['gain_after_fee'].sum()
         net_margin_bps = (total_profit_after_fee / trade_turnover) * 10000
@@ -312,13 +316,24 @@ class FinanceMetrics:
 
 
     def Return(self):
-        equity = self.df['scaled_equity'].iloc[-1]
+        pnl = self.df['scaled_cum_gain_after_fee'].iloc[-1]
         year_no = self.year_count
- 
-        total_return = ((equity / self.initial_capital) - 1) * 100
-        return_per_year = total_return / year_no
 
-        cagr = ((equity / self.initial_capital) ** (1 / year_no) - 1)*100
+        daily_close = self.df['close'].resample('D').last().dropna()
+        max_close = daily_close.max()
+
+        if self.fixed_allocation:
+            capital_base = (self.available_capital * (max_close / self.df['close'])).mean()
+        else:
+            capital_base = ((df['total_equity'] * self.allocation_per_trade) * (max_close / self.df['close'])).mean()
+
+
+        if capital_base == 0 or pd.isna(capital_base):
+            return 0.0, 0.0, 0.0
+ 
+        total_return = (pnl / capital_base) * 100
+        return_per_year = total_return / year_no
+        cagr = ((1 + total_return / 100) ** (1 / year_no) - 1) * 100
 
         return total_return, return_per_year, cagr
 
@@ -415,9 +430,9 @@ class FinanceBacktest:
              Calmar: {calmar:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
-             Margin: {margin:.2f} bps
+   Margin per Trade: {margin:.2f} bps
        Total Return: {return_3[0]:.2f}%
-      Annual Return: {return_3[1]:.2f}%
+    Return per year: {return_3[1]:.2f}%
                CAGR: {return_3[2]:.2f}%
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
@@ -489,15 +504,15 @@ class FinanceBacktest:
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\MFIF.csv')
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\cci_opt.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
-                    initial_capital=122_054_000_200, 
-                    allocation_per_trade=1,
+                    initial_capital=123_099_000_200, 
+                    allocation_per_trade=0.4828,
                     fixed_allocation=True,
                     risk_free_rate=0)
 
-    out = rep.pnl_report(data=df, plot=False)
+    out = rep.pnl_report(data=df, plot=True)
 
     
 # TASK
