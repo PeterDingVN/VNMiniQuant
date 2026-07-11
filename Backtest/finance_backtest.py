@@ -3,9 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 import pandas as pd
 
 from dataclasses import dataclass
+
 
 # ======================================  Helper =======================================
 # Plot config - font size
@@ -204,20 +207,29 @@ class FinanceMetrics:
         df['total_equity'] = self.initial_capital + df['cum_gain_after_fee']
 
 
-        # Scale by allocation_per_trade over close price
-        # Fix notional 
+        # Scale "position" by alloc_per_trade -> pos = 1 with price x but I could buy 2x -> pos = 2
+        # Fix allocation: allocate a fix pct of fixed initial capital 
         if self.fixed_allocation:
             df['scaler'] =  self.available_capital / df['close']
 
-        # Growing equity
+        # Growing equity: allocate a fix pct of growing current equity
         else:
             df['scaler'] = (df['total_equity'] * self.allocation_per_trade) / df['close']
 
         df['scaled_gain_after_fee'] = df['gain_after_fee'] * df['scaler']
         df['scaled_cum_gain_after_fee'] = df['scaled_gain_after_fee'].cumsum().ffill().fillna(0)
         df['scaled_equity'] = self.initial_capital + df['scaled_cum_gain_after_fee']
-        
+
         return df
+    
+
+    def Margin(self):
+        
+        trade_turnover = (self.df['pos_change'].abs() * self.df['close']).sum()
+        total_profit_after_fee = self.df['gain_after_fee'].sum()
+        net_margin_bps = (total_profit_after_fee / trade_turnover) * 10000
+
+        return net_margin_bps
 
 
     def Sharpe_after_fee(self):
@@ -375,6 +387,8 @@ class FinanceBacktest:
         
         name = self.fee_type.replace('_', ' ').title()
 
+        margin = fin_bt.Margin()
+
         sharpe_and_sor = fin_bt.Sharpe_after_fee()
         calmar = fin_bt.Calmar()
         mdd_3 = fin_bt.MDD()
@@ -401,6 +415,7 @@ class FinanceBacktest:
              Calmar: {calmar:.2f}
                 MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
        Total Profit: {profit_3[0]:,.2f}
+             Margin: {margin:.2f} bps
        Total Return: {return_3[0]:.2f}%
       Annual Return: {return_3[1]:.2f}%
                CAGR: {return_3[2]:.2f}%
@@ -474,10 +489,10 @@ class FinanceBacktest:
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\SuperMac.csv')
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\MFIF.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
-                    initial_capital=10_000_000_000, 
+                    initial_capital=122_054_000_200, 
                     allocation_per_trade=1,
                     fixed_allocation=True,
                     risk_free_rate=0)
