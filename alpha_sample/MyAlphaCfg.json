@@ -20,7 +20,8 @@
             "fee_type": "vn_stock",
             "initial_capital": 100000000,
             "currency": "vnd",
-            "exposed_capital": 1,
+            "allocation_per_trade": 1,
+            "fixed_allocation": "True",
             "risk_free_rate": 0.0
       },
       "alpha_cfg": {
