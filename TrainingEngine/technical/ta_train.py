@@ -1,9 +1,12 @@
-import pandas as pd
-import numpy as np
+import ast
+import re
 from typing import List, Tuple
-import optuna
 import copy
 from dataclasses import dataclass
+
+import pandas as pd
+import numpy as np
+import optuna
 
 from TrainingEngine.utils.data_split import TrainTestSplit, WalkForwardSplit
 from Backtest import FinanceMetrics
@@ -11,20 +14,95 @@ from AlphaBase import AlphaBase
 
 
 
-
 @dataclass
 class Metric:
     metric_map = {
-            "sharpe": lambda bt: bt.Sharpe_after_fee()[0],
-            "sortino": lambda bt: bt.Sharpe_after_fee()[1],
-            "calmar": lambda bt: bt.Calmar(),
-            "cagr": lambda bt: bt.Return()[2],
-            "mdd": lambda bt: bt.MDD()[1],
-            "return": lambda bt: bt.Return()[1],
-            "hitrate": lambda bt: bt.Hitrate()[2],
-            "total_trades": lambda bt: bt.Total_Trade()[0] + bt.Total_Trade()[1],
-            "profit": lambda bt: bt.Profit()[1]
-        }
+        "sharpe": lambda bt: bt.Sharpe_after_fee()[0],
+        "sortino": lambda bt: bt.Sharpe_after_fee()[1],
+        "calmar": lambda bt: bt.Calmar(),
+        "cagr": lambda bt: bt.Return()[2],
+        "mdd": lambda bt: bt.MDD()[1],
+        "return": lambda bt: bt.Return()[1],
+        "hitrate": lambda bt: bt.Hitrate()[2],
+        "total_trades": lambda bt: bt.Total_Trade()[0] + bt.Total_Trade()[1],
+        "profit": lambda bt: bt.Profit()[1],
+        "custom": lambda bt: None,
+    }
+
+    @classmethod
+    def _normalize_metric_name(cls, metric_name: str) -> str:
+        return re.sub(r"\s+", "", metric_name.lower())
+
+    @classmethod
+    def _safe_eval(cls, expr: str, bt) -> float:
+        value_map = {name: func(bt) for name, func in cls.metric_map.items() if name != "custom"}
+        value_map.update({"abs": abs, "min": min, "max": max})
+
+        safe_expr = expr
+        replacements = {}
+        for match in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\b", expr):
+            token = match.group(0)
+            if token in value_map:
+                placeholder = f"__metric_{len(replacements)}__"
+                replacements[placeholder] = value_map[token]
+                safe_expr = safe_expr.replace(token, placeholder, 1)
+
+        tree = ast.parse(safe_expr, mode="eval")
+
+        def _eval(node):
+            if isinstance(node, ast.Expression):
+                return _eval(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return float(node.value)
+            if isinstance(node, ast.Name):
+                if node.id not in replacements:
+                    raise ValueError(f"Unsupported metric token: {node.id}")
+                return replacements[node.id]
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                operand = _eval(node.operand)
+                return operand if isinstance(node.op, ast.UAdd) else -operand
+            if isinstance(node, ast.BinOp):
+                left = _eval(node.left)
+                right = _eval(node.right)
+                if isinstance(node.op, ast.Add):
+                    return left + right
+                if isinstance(node.op, ast.Sub):
+                    return left - right
+                if isinstance(node.op, ast.Mult):
+                    return left * right
+                if isinstance(node.op, ast.Div):
+                    return left / right
+                if isinstance(node.op, ast.Pow):
+                    return left ** right
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                func = replacements.get(node.func.id)
+                if func is None:
+                    raise ValueError(f"Unsupported function: {node.func.id}")
+                args = [_eval(arg) for arg in node.args]
+                return func(*args)
+            raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
+        return float(_eval(tree))
+
+    @classmethod
+    def score(cls, metric_name: str, bt, expr: str | None = None) -> float:
+        if expr is not None:
+            return cls._safe_eval(expr, bt)
+
+        normalized = cls._normalize_metric_name(metric_name)
+        if normalized == "custom":
+            if expr is None:
+                raise ValueError("Custom metric requires an expression.")
+            return cls._safe_eval(expr, bt)
+
+        if normalized in cls.metric_map:
+            return float(cls.metric_map[normalized](bt))
+
+        if "*" in normalized or "+" in normalized or "-" in normalized or "/" in normalized or "**" in normalized:
+            return cls._safe_eval(normalized, bt)
+
+        raise KeyError(f"Unknown metric: {metric_name}")
+
 
 
 class TrainTA(AlphaBase):
@@ -115,7 +193,7 @@ class TrainTA(AlphaBase):
                 fold_df['position'] = pos
                 bt = FinanceMetrics(df = fold_df, **self.config['bt_cfg'])
 
-                score_fold = Metric.metric_map[self.opt_metric](bt)                
+                score_fold = Metric.score(self.opt_metric, bt)
 
                 scores.append(score_fold)
 
