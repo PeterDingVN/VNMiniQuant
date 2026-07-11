@@ -205,7 +205,7 @@ class FinanceMetrics:
         # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
         df['fee'] = self.one_way_fee * df['pos_change'].abs()
-        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.01)
+        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.01)  # slippage 1%
 
         # Absolute Pnl
         df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum().ffill().fillna(0)
@@ -512,7 +512,12 @@ if __name__ == "__main__":
                     fixed_allocation=True,
                     risk_free_rate=0)
 
-    out = rep.pnl_report(data=df, plot=True)
+    out = rep.pnl_report(data=df, plot=False)
+
+
+
+
+
 
     
 # TASK
