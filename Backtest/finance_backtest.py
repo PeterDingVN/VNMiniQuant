@@ -24,15 +24,16 @@ TICK_SIZE = 16.5
 LEGEND_SIZE = 16.5
 
 
-# ---- Fee by asset class ----
+# ---- Fee One way by Asset class ----
 @dataclass
 class Fee():
     fee = {
-        'vn_future': 0.4,  # absolute 0.4 pts
-        'vn_stock': 0.0035,  # 0.35% one way including tax
-        'crypto': 0.00035,
-        'us_stock': 0.5,
-        'us_future': 0.3
+    'vn_future': 0.4,  # absolute 0.4 pts
+    'vn_stock': 0.005,  # 0.35% including tax + 0.12% advanced cash (this fee been averaged based on holiday duration in Vietnam)
+    'vn_stock_no_adv': 0.0035, # 0.35% including tax not using advanced cash 
+    'crypto': 0.00035,
+    'us_stock': 0.5,
+    'us_future': 0.3
     }
 
 
@@ -166,14 +167,14 @@ class StandardizeInput:
 
     @staticmethod
     def market_rule(data: pd.DataFrame, fee_type: str) -> pd.DataFrame:
-        if fee_type not in ['vn_future', 'vn_stock', 'crypto', 'us_stock', 'us_future']:
-            raise ValueError("fee_type only accepts: 'vn_future', 'vn_stock', 'crypto', 'us_stock', 'us_future'")
-        
+        if fee_type not in ['vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future']:
+            raise ValueError("fee_type only accepts: 'vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future'")
         if fee_type == 'vn_stock':
             data_out = VnStockRule().apply(data)
+        elif fee_type == 'vn_stock_no_adv':
+            data_out =  VnStockRule(advanced_cash=False).apply(data)
         else:
             return data
-
         return data_out
 
 
@@ -301,8 +302,8 @@ class FinanceMetrics:
         elif self.currency.lower() not in ["vnd", "usd"]:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
-        if fee_type not in ['vn_future', 'crypto', 'vn_stock', 'us_stock']:
-            raise ValueError('Fee type only accepts: vn_stock, us_stock, vn_future, crypto')
+        if fee_type not in ['vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future']:
+            raise ValueError("Fee type only accepts: 'vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future'")
         
         # Check cash
         self.available_capital = self.initial_capital * self.allocation_per_trade
@@ -327,13 +328,13 @@ class FinanceMetrics:
         # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
 
-        if self.fee_type == 'vn_future':
-            # Fee in abs
-            one_way_fee = Fee.fee[self.fee_type]
-
-        elif self.fee_type == 'vn_stock':
+        # Fee
+        if self.fee_type in ['vn_stock', 'vn_stock_no_adv']:
             # Fee in pct
             one_way_fee = Fee.fee[self.fee_type] * df['close']
+        else:
+            # fee in abs
+            one_way_fee = Fee.fee[self.fee_type]
 
         df['fee'] = one_way_fee * df['pos_change'].abs()
 
@@ -593,36 +594,33 @@ class FinanceBacktest:
 
         # 1. Return
         equity = fin_bt.df['scaled_equity'][~fin_bt.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
-        equity = equity.resample('D').last().dropna()
-        ret = (equity / equity.iloc[0] - 1) * 100
+        ret = equity / equity.iloc[0] - 1
         
-        axs[0].plot(ret.index, ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
-        
-        # Make fonts larger for Return plot
+        axs[0].plot(ret.index, 1+ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
         axs[0].set_title("Strategy Performance", fontsize=TITLE_SIZE)
-        axs[0].set_ylabel("Return (%)", fontsize=LABEL_SIZE)
+        axs[0].set_ylabel("Return", fontsize=LABEL_SIZE)
         axs[0].tick_params(axis='both', labelsize=TICK_SIZE)
         axs[0].legend(fontsize=LEGEND_SIZE, loc="upper left")
         axs[0].grid(True, alpha=0.3)
         
+
         # 2. Drawdown
         peak = equity[equity!=0].cummax()
-        daily_dd = (peak - equity)/fin_bt.available_capital * 100
-        daily_dd = daily_dd.resample('D').last().dropna()
+        if self.fixed_allocation:
+            daily_dd = (peak - equity)/fin_bt.available_capital * 100
+        else:
+            daily_dd = (peak - equity)/peak * 100
         
         axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4, label="Drawdown")
-        
-        # Make fonts larger for Drawdown plot
-        axs[1].set_ylabel("Drawdown %", fontsize=LABEL_SIZE)
+        axs[1].set_ylabel("Drawdown (%)", fontsize=LABEL_SIZE)
         axs[1].set_xlabel("Date", fontsize=LABEL_SIZE)  # Added X-label for the bottom plot
         axs[1].tick_params(axis='both', labelsize=TICK_SIZE)
         axs[1].legend(fontsize=LEGEND_SIZE, loc="lower left")
         axs[1].grid(True, alpha=0.3)
-        
-        # Optional: Standard convention is to have drawdown go downwards
         axs[1].invert_yaxis()
 
         plt.tight_layout(); plt.show()
+
 
     # --- PNL REPORT MAIN ---
     def pnl_report(self, data: pd.DataFrame, plot=True):
@@ -635,13 +633,13 @@ class FinanceBacktest:
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\cci_opt.csv')
-    rep = FinanceBacktest(fee_type='vn_stock', 
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\cci.csv')
+    rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=123_099_000_200, 
                     allocation_per_trade=0.4828,
                     fixed_allocation=True,
                     risk_free_rate=0)
 
-    out = rep.pnl_report(data=df, plot=False)
+    out = rep.pnl_report(data=df, plot=True)
 
