@@ -252,7 +252,7 @@ class StandardizeInput:
                 f"{nan_count} row(s) containing NaN values were dropped.",
                 UserWarning
             )
-            df = df.dropna()
+            df = df.dropna(subset=["open", "high", "low", "close", "volume"])
 
 
         # Convert pos according to market
