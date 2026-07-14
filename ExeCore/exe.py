@@ -1,5 +1,6 @@
 from AlphaBase import AlphaBase
 from TrainingEngine import TrainTA, TrainTestSplit
+import numpy as np
 
 import pandas as pd
 
@@ -45,7 +46,7 @@ class AlphaCore(AlphaBase):
             print(f"{BLUE}*****************  {label} *****************{RESET}")
             pos = self.alpha.run(df)
             df = df.copy()
-            df.loc[:, 'position'] = pos
+            df.loc[:, 'position'] = np.asarray(pos)
 
             self.bt_fin.pnl_report(df, plot=plot_pnl)
             
