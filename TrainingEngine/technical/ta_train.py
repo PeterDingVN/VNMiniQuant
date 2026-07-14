@@ -190,7 +190,7 @@ class TrainTA(AlphaBase):
             for fold_df in is_data_list:
 
                 pos = alpha.run(fold_df)
-                fold_df['position'] = pos
+                fold_df['position'] = np.asarray(pos)
                 bt = FinanceMetrics(df = fold_df, **self.config['bt_cfg'])
 
                 score_fold = Metric.score(self.opt_metric, bt)
