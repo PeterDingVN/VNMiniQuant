@@ -252,7 +252,9 @@ class StandardizeInput:
                 f"{nan_count} row(s) containing NaN values were dropped.",
                 UserWarning
             )
-            df = df.dropna(subset=["open", "high", "low", "close", "volume"])
+            df = df.dropna()
+            if df.empty:
+                raise LengthError('Data becomes empty')
 
 
         # Convert pos according to market
