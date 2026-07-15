@@ -57,6 +57,8 @@ class AlphaBase:
         self.bt_fin = Backtest.bt_finance(bt_config)
 
 
+    
+
     # ------------- Load All Config ---------------
     def _load_config(self) -> dict:
         cfg_files = list(ALPHA_DIR.glob("*Cfg.json"))
@@ -102,4 +104,9 @@ class AlphaBase:
             raise ImportError(
                 f"Class '{alpha_cfg['classname']}' not found in {alpha_cfg['filename']}"
             )
+        
+    # ----------------- Load param set into train -------------------
+    def _construct_params_set(self) -> dict:
+        alpha_cfg = self.config.get("alpha_cfg", {})
+        return dict(alpha_cfg.get("params", {}))
 
