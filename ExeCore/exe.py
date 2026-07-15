@@ -41,9 +41,11 @@ class AlphaCore(AlphaBase):
         oos_size = TrainTA().__dict__['oos_ratio']
         train_df, test_df = TrainTestSplit(test_size=oos_size).split(data)
 
-        for label, df in (("TRAINING RESULT", train_df), ("TEST RESULT", test_df)):
+        for label, df in (("IN SAMPLE RESULT", train_df), ("OUT OF SAMPLE RESULT", test_df)):
             print(' ')
-            print(f"{BLUE}*****************  {label} *****************{RESET}")
+            print(f"""{BLUE}##########################################  
+            {label} 
+##########################################{RESET}""")
             pos = self.alpha.run(df)
             df = df.copy()
             df.loc[:, 'position'] = np.asarray(pos)
