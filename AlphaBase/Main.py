@@ -59,7 +59,7 @@ class AlphaBase:
 
     # ------------- Load All Config ---------------
     def _load_config(self) -> dict:
-        cfg_files = list(ALPHA_DIR.glob("*.json"))
+        cfg_files = list(ALPHA_DIR.glob("*Cfg.json"))
 
         if not cfg_files:
             raise FileNotFoundError(f"No alpha config (*Cfg.json) found in {ALPHA_DIR}")
@@ -71,7 +71,7 @@ class AlphaBase:
         
     # ------------- Load All Config ---------------
     def _dump_config(self, new_cfg) -> dict:
-        cfg_files = list(ALPHA_DIR.glob("*.json"))
+        cfg_files = list(ALPHA_DIR.glob("*Cfg.json"))
 
         if not cfg_files:
             raise FileNotFoundError(f"No alpha config (*Cfg.json) found in {ALPHA_DIR}")
