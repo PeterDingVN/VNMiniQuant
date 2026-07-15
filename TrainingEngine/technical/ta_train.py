@@ -145,69 +145,86 @@ class TrainTA(AlphaBase):
     def _optimize(
         self,
         is_data_list: List[pd.DataFrame],
-        param_range: dict) -> dict:
+        param_range: dict
+    ) -> dict:
+
+        def _suggest_from_spec(trial, name: str, spec, default_value=None):
+            if spec is None:
+                return default_value
+
+            if isinstance(spec, list):
+                return trial.suggest_categorical(name, spec)
+
+            if isinstance(spec, tuple):
+                if len(spec) not in (2, 3):
+                    raise ValueError(f"{name}: tuple is only for Int or Float, and must have length 2 or 3.")
+
+                low, high = spec[0], spec[1]
+                low, high = min(low, high), max(low, high)
+                step = spec[2] if len(spec) == 3 else None
+
+                kwargs = {}
+                if step is not None:
+                    kwargs["step"] = step
+
+                if any(isinstance(x, float) for x in (low, high, step) if x is not None):
+                    return trial.suggest_float(name, float(low), float(high), **kwargs)
+                return trial.suggest_int(name, int(low), int(high), **kwargs)
+
+            raise TypeError(f"{name}: str or bool must be in List, int or float in Tuple")
 
         def objective(trial):
-
+            current_params = self._construct_params_set()
             params = {}
-            for name, value in param_range.items():
 
-                # Categorical
-                if isinstance(value, list):
-                    params[name] = trial.suggest_categorical(name, value)
+            # Sample every parameter from either param_range or default value
+            all_param_names = set(current_params) | set(param_range)
 
-                # Int / Float
-                elif isinstance(value, tuple):
-
-                    if len(value) not in (2, 3):
-                        raise ValueError(f"{name}: tuple must have length 2 or 3.")
-
-                    low = min(value[0], value[1])
-                    high = max(value[0], value[1])
-                    step = value[2] if len(value) == 3 else None
-                    kwargs = {}
-                    if step is not None:
-                        kwargs["step"] = step
-
-
-                    if isinstance(low, float) or isinstance(high, float) or isinstance(step, float):
-                        params[name] = trial.suggest_float(name, low, high, **kwargs)
-
-                    else:
-                        params[name] = trial.suggest_int(name,low,high,**kwargs,)
-
+            for name in all_param_names:
+                if name in param_range:
+                    params[name] = _suggest_from_spec(
+                        trial=trial,
+                        name=name,
+                        spec=param_range[name],
+                        default_value=current_params.get(name),
+                    )
                 else:
-                    raise TypeError(f"{name}: value must be a tuple or a list.")
+                    default_value = current_params[name]
 
+                    if isinstance(default_value, bool):
+                        params[name] = trial.suggest_categorical(name, [default_value])
+                    elif isinstance(default_value, str):
+                        params[name] = trial.suggest_categorical(name, [default_value])
+                    elif isinstance(default_value, int):
+                        params[name] = trial.suggest_int(name, default_value, default_value)
+                    elif isinstance(default_value, float):
+                        params[name] = trial.suggest_float(name, default_value, default_value)
+                    else:
+                        params[name] = default_value
 
             config = copy.deepcopy(self.config)
-            config['alpha_cfg']['params'] = params
+            config["alpha_cfg"]["params"] = params
 
-            alpha = self.class_alpha(config['alpha_cfg']['params'])
+            alpha = self.class_alpha(config["alpha_cfg"]["params"])
 
             scores = []
-
             for fold_df in is_data_list:
+                df = fold_df.copy()
 
-                pos = alpha.run(fold_df)
-                fold_df['position'] = np.asarray(pos)
-                bt = FinanceMetrics(df = fold_df, **self.config['bt_cfg'])
+                pos = alpha.run(df)
+                df["position"] = np.asarray(pos)
 
+                bt = FinanceMetrics(df=df, **self.config["bt_cfg"])
                 score_fold = Metric.score(self.opt_metric, bt)
-
                 scores.append(score_fold)
 
-            if len(scores) == 0 or np.nan in scores:
+            if not scores or any(pd.isna(s) for s in scores):
                 return -9999
 
-            return np.mean(scores)
+            return float(np.mean(scores))
 
         study = optuna.create_study(direction=self.opt_dir)
-
-        study.optimize(
-            objective,
-            n_trials=self.n_trials,
-        )
+        study.optimize(objective, n_trials=self.n_trials)
 
         return study.best_params
     
