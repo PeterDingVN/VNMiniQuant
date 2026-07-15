@@ -94,6 +94,9 @@ class Headers:
 class InputError(Exception):
     pass
 
+class TickerExistenceError(Exception):
+    pass
+
 class RobustSession:
     """
         Auto retry when error 429, 500, 502, 503, 504 is thrown
@@ -422,7 +425,7 @@ class _SingleScraper:
                 df = self._fetch_trading_view(username=self.config['username'], password=self.config['password'])
 
             if df.empty:
-                raise ValueError("Ticker does not exist. Please check source, api url, parsing method.")
+                raise TickerExistenceError('Ticker not exist either due to: unavailable in defined date range, wrong name, wrong data source.')
 
 
             df = self._standardize_dataframe(df)
