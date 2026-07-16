@@ -359,7 +359,6 @@ class FinanceMetrics:
         df['scaled_gain_after_fee'] = df['gain_after_fee'] * df['scaler']
         df['scaled_cum_gain_after_fee'] = df['scaled_gain_after_fee'].cumsum().ffill().fillna(0)
         df['scaled_equity'] = self.initial_capital + df['scaled_cum_gain_after_fee']
-
         return df
     
 
@@ -369,6 +368,21 @@ class FinanceMetrics:
         net_margin_bps = (total_profit_after_fee / trade_turnover) * 10000
 
         return net_margin_bps
+    
+
+    def Sharpe(self):
+        daily_gain = (self.df['gain'] * self.df['scaler']).resample('D').sum(min_count=1).dropna()
+        daily_return = daily_gain / self.available_capital
+        daily_rf = (1 + self.rf_rate) ** (1 / self.trade_period) - 1
+
+        daily_ret = daily_return - daily_rf
+        std_ret = daily_ret.std()
+
+        if std_ret == 0 or np.isnan(std_ret):
+            return np.nan, np.nan
+
+        sharpe = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
+        return sharpe
 
 
     def Sharpe_after_fee(self):
@@ -383,9 +397,9 @@ class FinanceMetrics:
         if std_ret == 0 or np.isnan(std_ret):
             return np.nan, np.nan
 
-        sharpe = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
+        sharpe_after_fee = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
         sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
-        return sharpe, sortino
+        return sharpe_after_fee, sortino
 
 
     def Calmar(self):
@@ -589,18 +603,26 @@ class FinanceBacktest:
         
         figsize = (22, 10)
         
-        sharpe = fin_bt.Sharpe_after_fee()[0]
+        sharpe_af = fin_bt.Sharpe_after_fee()[0]
+        sharpe = fin_bt.Sharpe()
         
         _, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={"height_ratios": [6, 4]}, sharex=True)
         
 
         # 1. Return
+        # Before fee
+        bf_equity = (fin_bt.df['gain'] * fin_bt.df['scaler']).cumsum().ffill().fillna(0) + fin_bt.initial_capital
+        bf_equity = bf_equity[~bf_equity.isin([np.nan, np.inf, -np.inf])]
+        ret_bf = bf_equity / bf_equity.iloc[0] - 1
+
+        # After fee
         equity = fin_bt.df['scaled_equity'][~fin_bt.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
         ret = equity / equity.iloc[0] - 1
         
-        axs[0].plot(ret.index, 1+ret, label=f"Strategy (Sharpe_after_fee: {sharpe:.2f})", color="blue")
+        axs[0].plot(ret.index, 1+ret_bf, label=f"Sharpe: {sharpe:.2f}", color="blue")
+        axs[0].plot(ret.index, 1+ret, label=f"Sharpe_after_fee: {sharpe_af:.2f}", color="darkorange")
         axs[0].set_title("Strategy Performance", fontsize=TITLE_SIZE)
-        axs[0].set_ylabel("Return", fontsize=LABEL_SIZE)
+        axs[0].set_ylabel("Cum. Return", fontsize=LABEL_SIZE)
         axs[0].tick_params(axis='both', labelsize=TICK_SIZE)
         axs[0].legend(fontsize=LEGEND_SIZE, loc="upper left")
         axs[0].grid(True, alpha=0.3)
@@ -635,7 +657,7 @@ class FinanceBacktest:
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\cci.csv')
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\Atsys.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='vnd', 
                     initial_capital=123_099_000_200, 
