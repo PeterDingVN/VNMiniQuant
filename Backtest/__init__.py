@@ -1,4 +1,4 @@
 from .finance_backtest import *
+from .stat_backtest import *
 
-
-__all__ = [FinanceBacktest]
+__all__ = [FinanceBacktest, StatTestTA]
