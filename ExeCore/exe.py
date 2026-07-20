@@ -51,9 +51,20 @@ class AlphaCore(AlphaBase):
             df.loc[:, 'position'] = np.asarray(pos)
 
             self.bt_fin.pnl_report(df, plot=plot_pnl)
-            
+
+        print(' ')
+        print(f"""{BLUE}##########################################  
+           ALL DATA PERFORMANCE
+##########################################{RESET}""")
+        pos = self.alpha.run(data)
+        data = data.copy()
+        data.loc[:, 'position'] = np.asarray(pos)
+
+        self.bt_fin.pnl_report(data, plot=plot_pnl)
+                
         # them stat tets, future leak test, overfit test
         
+
 
 # ML -> coming soon ...
     def backtest_ml(self):
