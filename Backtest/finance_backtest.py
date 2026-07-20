@@ -4,11 +4,16 @@ import matplotlib.pyplot as plt
 
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 class LengthError(Exception):
+    pass
+
+class ZeroPosError(Exception):
     pass
 
 from dataclasses import dataclass
 from datetime import time
+from typing import Union
 
 
 
@@ -176,6 +181,14 @@ class StandardizeInput:
         else:
             return data
         return data_out
+    
+    
+    @staticmethod
+    def check_pos_0(pos_col: Union[np.array, pd.Series]) -> None:
+        if pd.Series(pos_col).fillna(0).eq(0).all():
+            raise ZeroPosError(
+                "Position column contains only zeros or NaNs. No trades were generated."
+            )
 
 
     # ---- MAIN METHOD -----
@@ -215,6 +228,7 @@ class StandardizeInput:
         
         # take necessary cols
         df = df[StandardizeInput.REQUIRED_COLS]
+        StandardizeInput.check_pos_0(pos_col=df['position'])
 
         # convert datetime
         try:
