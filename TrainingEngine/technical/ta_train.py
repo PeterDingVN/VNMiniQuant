@@ -9,7 +9,7 @@ import numpy as np
 import optuna
 
 from TrainingEngine.utils.data_split import TrainTestSplit, WalkForwardSplit
-from Backtest import FinanceMetrics
+from Backtest import FinanceMetrics, ZeroPosError
 from AlphaBase import AlphaBase
 
 
@@ -214,8 +214,11 @@ class TrainTA(AlphaBase):
                 pos = alpha.run(df)
                 df["position"] = np.asarray(pos)
 
-                bt = FinanceMetrics(df=df, **self.config["bt_cfg"])
-                score_fold = Metric.score(self.opt_metric, bt)
+                try:
+                    bt = FinanceMetrics(df=df, **self.config["bt_cfg"])
+                    score_fold = Metric.score(self.opt_metric, bt)
+                except ZeroPosError:
+                    score_fold = np.nan
                 scores.append(score_fold)
 
             if not scores or any(pd.isna(s) for s in scores):
