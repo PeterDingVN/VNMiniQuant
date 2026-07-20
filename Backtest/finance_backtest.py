@@ -314,7 +314,7 @@ class FinanceMetrics:
 
         
         if self.currency.lower() == "usd":
-            self.initial_capital /= 26_000
+            self.initial_capital *= 26_000
         elif self.currency.lower() not in ["vnd", "usd"]:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
