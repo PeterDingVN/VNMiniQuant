@@ -24,6 +24,17 @@ class StandardizedDataDict(dict):
 
         return "_".join(parts).lower()
 
+    def _split_symbol_and_timeframe(self, key: str) -> tuple[str, str]:
+        """Split a raw data key into symbol and timeframe parts when possible."""
+        if not isinstance(key, str):
+            return "", ""
+
+        normalized = self._normalize_symbol(key)
+        match = re.match(r"^(?P<symbol>.+)_(?P<tf>\d+[mhd])$", normalized)
+        if not match:
+            return normalized, ""
+        return match.group("symbol"), match.group("tf")
+
     def _build_standardized_maps(self):
         for cfg in self._configs:
             orig_sym = cfg.get("original_symbol", "")
@@ -35,9 +46,16 @@ class StandardizedDataDict(dict):
 
             matched_raw_key = None
             for raw_key in self._raw_data.keys():
-                if orig_sym.lower() in raw_key.lower():
+                raw_sym, raw_tf = self._split_symbol_and_timeframe(raw_key)
+                if raw_sym == norm_sym and (not raw_tf or raw_tf == norm_tf):
                     matched_raw_key = raw_key
                     break
+
+            if not matched_raw_key:
+                for raw_key in self._raw_data.keys():
+                    if self._normalize_symbol(raw_key) == standardized_key:
+                        matched_raw_key = raw_key
+                        break
 
             if matched_raw_key:
                 df = self._raw_data[matched_raw_key]
