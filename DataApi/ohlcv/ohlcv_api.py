@@ -1,12 +1,13 @@
 import os
 import sys
 import re
-import time
+
 import random
 import urllib3
 from typing import Dict, List, Tuple, Optional, Any, Union
 from dataclasses import dataclass
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -629,7 +630,14 @@ class _SingleScraper:
     def _fetch_vietstock(self) -> pd.DataFrame:
 
         symbol = self.config["symbol"]
-        print(f"{YELLOW}[WARNING] Rechanneled to Vietstock. INTRADAY DATA for {symbol} is limited to 2025-06-27!{RESET}")
+
+        today = datetime.today()
+        try:
+            one_year_ago = (today.replace(year=today.year - 1) + timedelta(days=1)).strftime("%Y-%m-%d")
+        except ValueError:
+            one_year_ago = today.replace(year=today.year - 1, day=28).strftime("%Y-%m-%d")
+        print(f"{YELLOW}[WARNING] Rechanneled to Vietstock. INTRADAY DATA for {symbol} is OFTEN limited to {one_year_ago} 09:00:00{RESET}")
+
 
         base_interval = self.config["base_interval"]
         start_sec = int(self.config["start_ts_sec"])
