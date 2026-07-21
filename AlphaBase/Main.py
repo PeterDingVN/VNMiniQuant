@@ -18,7 +18,7 @@ class Data:
         data_cfg = {key: [item[key] for item in data_list] for key in data_list[0]}
         tv_username = config['username']
         tv_password = config['password']
-        update_data = config['update_data'].strip().upper() == 'True'
+        update_data = config['update_data'].strip().lower() == 'true'
 
         database = OhlcvGenerator(**data_cfg, update_data=update_data, username=tv_username, password=tv_password)
 
