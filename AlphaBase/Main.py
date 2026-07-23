@@ -197,49 +197,47 @@ class AlphaBase:
     def backtest(self, data: pd.DataFrame, oos_ratio: float, plot_pnl: bool = True):
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
             alpha = self.class_alpha(self.config['alpha_cfg']['params'])
-        else:
-            raise NotImplementedError("ML is under development, use ta instead")
 
-        # fin bt
-        fin = Backtest.bt_finance(self.config['bt_cfg'])
+            # fin bt
+            fin = Backtest.bt_finance(self.config['bt_cfg'])
 
-        try:
-            os_ratio = self.oos_ratio
-        except AttributeError:
-            if not (0 < oos_ratio < 1):
-                raise ValueError("OOS size must be larger than 0 and smaller than 1")
-            os_ratio = oos_ratio
+            try:
+                os_ratio = self.oos_ratio
+            except AttributeError:
+                if not (0 < oos_ratio < 1):
+                    raise ValueError("OOS size must be larger than 0 and smaller than 1")
+                os_ratio = oos_ratio
 
-        train_df, test_df = TrainTestSplit(test_size=os_ratio).split(data)
+            train_df, test_df = TrainTestSplit(test_size=os_ratio).split(data)
 
-        print(f"""{BLUE}##########################################  
-        Financial Backtest {self.config['bt_cfg']['fee_type']} 
-##########################################{RESET}""")
-
-        for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
-                          ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
-            print(' ')
-            print(label)
-            pos = alpha.run(df)
-            df = df.copy()
-            df.loc[:, 'position'] = np.asarray(pos)
-            fin.pnl_report(df, plot=plot_pnl)
-
-        print(' ')
-        print("\033[34mALL DATA PERFORMANCE\033[0m")
-        pos = alpha.run(data)
-        data = data.copy()
-        data.loc[:, 'position'] = np.asarray(pos)
-        fin.pnl_report(data, plot=plot_pnl)
-                
-        # stat test
-        # ta
-        if self.config['alpha_cfg']['alpha_type'] == 'ta':
             print(f"""{BLUE}##########################################  
-        TA Stat Backtest {self.config['bt_cfg']['fee_type']} 
-##########################################{RESET}""")
+            Financial Backtest {self.config['bt_cfg']['fee_type']} 
+    ##########################################{RESET}""")
+
+            for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
+                            ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
+                print(' ')
+                print(label)
+                pos = alpha.run(df)
+                df = df.copy()
+                df.loc[:, 'position'] = np.asarray(pos)
+                fin.pnl_report(df, plot=plot_pnl)
+
+            print(' ')
+            print("\033[34mALL DATA PERFORMANCE\033[0m")
+            pos = alpha.run(data)
+            data = data.copy()
+            data.loc[:, 'position'] = np.asarray(pos)
+            fin.pnl_report(data, plot=plot_pnl)
+                    
+            # stat test
+            # ta
+            print(f"""{BLUE}##########################################  
+              TA Stat Backtest {self.config['bt_cfg']['fee_type']} 
+    ##########################################{RESET}""")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
             self.bt_stat.stat_check(data=data)
+            
         else:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
     

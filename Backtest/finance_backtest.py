@@ -582,9 +582,6 @@ class FinanceBacktest:
 
 
         return f"""
-======================================================
-             Financial Backtest {name}
-======================================================
     Initial capital: {fin_bt.initial_capital:,.2f}
      Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
              Sharpe: {sharpe_and_sor[0]:.2f}
