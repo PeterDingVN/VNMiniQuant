@@ -10,8 +10,6 @@ import optuna
 
 from TrainingEngine.utils.data_split import TrainTestSplit, WalkForwardSplit
 from Backtest import FinanceMetrics, ZeroPosError
-from AlphaBase import AlphaBase
-
 
 
 @dataclass
@@ -105,8 +103,10 @@ class Metric:
 
 
 
-class TrainTA(AlphaBase):
+class TrainTA:
     def __init__(self,
+                 alpha: None,
+                 config: dict,
                  oos_ratio: float = 0.15,
                  w4w_val_ratio: float = 0.15,
                  w4w_gap: int = 0,
@@ -114,9 +114,9 @@ class TrainTA(AlphaBase):
                  n_trials: int = 110,
                  opt_dir: str = 'maximize',
                  opt_metric: str = 'sharpe'):
-        
-        super().__init__()
-        
+
+        self.class_alpha = alpha
+        self.config = config
         self.oos_ratio = oos_ratio
         self.w4w_val_ratio = w4w_val_ratio
         self.w4w_gap = w4w_gap
@@ -128,20 +128,18 @@ class TrainTA(AlphaBase):
     def start_training(self, data:pd.DataFrame, param_range:dict):
         is_list, _ = self._split_data(data)
         best_params = self._optimize(is_list, param_range)
-
-        # overwrite cfg
-        cfg = self._load_config()
-        cfg['alpha_cfg']['params'] = best_params
-        self._dump_config(cfg)
+        return best_params
 
 
+    # ----- HELPER --------
 
+    # Split data
     def _split_data(self, data: pd.DataFrame) -> Tuple[pd.DataFrame | List[pd.DataFrame]]:
         is_df, os_df = TrainTestSplit(test_size=self.oos_ratio).split(data)
         is_list = WalkForwardSplit(test_size=self.w4w_val_ratio, gap=self.w4w_gap, k_fold=self.n_fold).split(is_df)
         return is_list, os_df
 
-
+    # Optimize
     def _optimize(
         self,
         is_data_list: List[pd.DataFrame],
@@ -173,8 +171,10 @@ class TrainTA(AlphaBase):
 
             raise TypeError(f"{name}: str or bool must be in List, int or float in Tuple")
 
+
         def objective(trial):
-            current_params = self._construct_params_set()
+
+            current_params = self.config['alpha_cfg']['params']
             params = {}
 
             # Sample every parameter from either param_range or default value

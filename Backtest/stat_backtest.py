@@ -13,8 +13,7 @@ warnings.filterwarnings('ignore')
 
 class TaStatTest:
 
-    def __init__(self, alpha_type: str = "ta", config: Optional[dict] = None):
-        self.alpha_type = alpha_type
+    def __init__(self, config: Optional[dict] = None):
         self.config = config or {}
         self.alpha = None
         self.bt_fin = None
