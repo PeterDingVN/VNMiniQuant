@@ -211,8 +211,8 @@ class AlphaBase:
             train_df, test_df = TrainTestSplit(test_size=os_ratio).split(data)
 
             print(f"""{BLUE}##########################################  
-            Financial Backtest {self.config['bt_cfg']['fee_type']} 
-    ##########################################{RESET}""")
+        Financial Backtest {self.config['bt_cfg']['fee_type']} 
+##########################################{RESET}""")
 
             for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
                             ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
@@ -233,11 +233,11 @@ class AlphaBase:
             # stat test
             # ta
             print(f"""{BLUE}##########################################  
-              TA Stat Backtest {self.config['bt_cfg']['fee_type']} 
-    ##########################################{RESET}""")
+        TA Stat Backtest {self.config['bt_cfg']['fee_type']} 
+##########################################{RESET}""")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
             self.bt_stat.stat_check(data=data)
-            
+
         else:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
     
