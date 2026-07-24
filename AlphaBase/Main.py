@@ -2,6 +2,7 @@ import json
 import importlib.util
 from pathlib import Path
 from typing import List, Dict
+from dataclasses import dataclass
 
 import pandas as pd
 import numpy as np
@@ -17,6 +18,18 @@ ALPHA_DIR = Path(__file__).resolve().parent.parent/ "Alpha" # --> Change this to
 
 BLUE = "\033[38;5;45m"
 RESET = "\033[0m"
+
+@dataclass
+class AssetName:
+    name_ls = {
+        'vn_future': 'Vietnam Future',
+        'vn_stock': 'Vietnam Stock',
+        'vn_stock_no_adv': 'Vietnam Stock',
+        'us_future': 'US Future',
+        'us_stock': 'US Stock',
+        'crypto': 'Crypto' 
+    }
+    
 
 class DataManager:
     @staticmethod
@@ -210,9 +223,9 @@ class AlphaBase:
 
             train_df, test_df = TrainTestSplit(test_size=os_ratio).split(data)
 
-            print(f"""{BLUE}##########################################  
-        Financial Backtest {self.config['bt_cfg']['fee_type']} 
-##########################################{RESET}""")
+            print(f"""{BLUE}############################################## 
+      Financial Backtest {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} 
+##############################################{RESET}""")
 
             for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
                             ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
@@ -232,9 +245,9 @@ class AlphaBase:
                     
             # stat test
             # ta
-            print(f"""{BLUE}##########################################  
-        TA Stat Backtest {self.config['bt_cfg']['fee_type']} 
-##########################################{RESET}""")
+            print(f"""{BLUE}##############################################  
+     Alpha Robustness Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} 
+##############################################{RESET}""")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
             self.bt_stat.stat_check(data=data)
 
