@@ -11,6 +11,7 @@ from .finance_backtest import FinanceMetrics, ZeroPosError
 
 warnings.filterwarnings('ignore')
 
+
 class TaStatTest:
 
     def __init__(self, config: Optional[dict] = None):
@@ -129,15 +130,16 @@ class TaStatTest:
             base_ret = base_eval.get("total_return", np.nan)
             shifted_ret = shifted_eval.get("total_return", np.nan)
 
-            sharpe_drop = (base_sharpe - shifted_sharpe) / max(abs(base_sharpe), 1e-12) if np.isfinite(base_sharpe) and np.isfinite(shifted_sharpe) else 0.0
-            ret_drop = (base_ret - shifted_ret) / max(abs(base_ret), 1e-12) if np.isfinite(base_ret) and np.isfinite(shifted_ret) else 0.0
+            sharpe_drop = (base_sharpe - shifted_sharpe) / max(abs(base_sharpe), 1e-12) \
+                        if np.isfinite(base_sharpe) and np.isfinite(shifted_sharpe) else 0.0
+            ret_drop = (base_ret - shifted_ret) / max(abs(base_ret), 1e-12) \
+                        if np.isfinite(base_ret) and np.isfinite(shifted_ret) else 0.0
 
             is_drop = (sharpe_drop > min_perf_drop) or (ret_drop > min_perf_drop)
             if is_drop:
                 drop_count += 1
 
             # Compare chunk positions against full data positions using exact datetime reference
-
             orig_pos_chunk = full_df.set_index("datetime")["position"].reindex(chunk["datetime"])
             curr_pos_chunk = pos_chunk
 
@@ -164,7 +166,6 @@ class TaStatTest:
         sys.stdout.write("\r\033[2K")
         sys.stdout.flush()
 
-        # Step 3: Print final colored status line
         if drop_count > 9 or diff_count >= 1:
             sys.stdout.write("\r\033[K\033[31mFail future leak test.\033[0m")
             sys.stdout.flush()
@@ -173,12 +174,68 @@ class TaStatTest:
             sys.stdout.flush()
             
 
-    def overfit(self, *args, **kwargs):
-        pass
+    def overfit(self, data: pd.DataFrame, delta: float = 0.05, min_flatness: float = 0.7):
+
+        sys.stdout.write("\033[35mChecking overfit ...\033[0m")
+        sys.stdout.flush()
+
+
+        # In-Sample Baseline Sharpe
+        df_base = data.copy()
+        df_base["position"] = np.asarray(self.alpha.run(df_base))
+        base_sr = self._metric_eval(df_base)['sharpe']
+
+        # Fail immediately if Sharpe <= 0
+        if base_sr <= 0:
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\r\033[K\033[31mFail overfit test because Sharpe too low\033[0m\n")
+            sys.stdout.flush()
+
+
+        # ---------------------------------------------------------------------
+        # Check if 30th Sharpe > n% of base Sharpe
+        # ---------------------------------------------------------------------
+        k_folds = 30
+        fold_size = len(data) // k_folds
+        warmup = self._warmup_start()
+        oos_srs = []
+
+        for k in range(k_folds):
+            start_idx = k * fold_size
+            end_idx = (k + 1) * fold_size if k < k_folds - 1 else len(data)
+
+            context_start = max(0, start_idx - warmup)
+            fold_df = data.iloc[context_start:end_idx].copy()
+
+            eval_res = self._metric_eval(fold_df)
+            oos_sr = eval_res.get('sharpe', np.nan)
+            if np.isfinite(oos_sr):
+                oos_srs.append(oos_sr)
+
+        if oos_srs:
+            p30_sr = float(np.percentile(oos_srs, 30))
+            target_sr = base_sr * 0.85
+            pass_oos = p30_sr >= target_sr
+        else:
+            pass_oos = False
+
+        
+        sys.stdout.write("\r\033[2K")
+
+        if pass_oos:
+            sys.stdout.write("\r\033[K\033[32mPass overfit test.\033[0m\n")
+        else:
+            sys.stdout.write("\r\033[K\033[31mFail overfit test.\033[0m\n")
+            
+        sys.stdout.flush()
 
 
     # ----- MAIN FUNC ------
     def stat_check(self, data: pd.DataFrame):
         self.future_leak(data=data)
-        self.overfit()
+
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+        self.overfit(data=data)
         
