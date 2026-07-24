@@ -406,7 +406,7 @@ class _SingleScraper:
     
     # Provider‑specific max candles per request
     MAX_LIMITS = {
-        "crypto": 5000,
+        "crypto": 1400,
         "trading_view": 5000
     }
 
