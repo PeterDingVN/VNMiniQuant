@@ -305,7 +305,7 @@ class FinanceMetrics:
 
 
         self.rf_rate = risk_free_rate
-        self.currency = currency
+        self.currency = currency.lower()
         self.initial_capital = initial_capital
 
         if not (0 < allocation_per_trade <= 1):
@@ -313,29 +313,58 @@ class FinanceMetrics:
         self.allocation_per_trade = allocation_per_trade
 
         
-        if self.currency.lower() == "usd":
-            self.initial_capital *= 26_000
-        elif self.currency.lower() not in ["vnd", "usd"]:
+        # if self.currency.lower() == "usd":
+        #     self.initial_capital *= 26_000
+
+        # Check currency
+        if self.currency not in ["vnd", "usd"]:
             raise ValueError('currency only accepts "vnd" or "usd"')
         
+        # Check fee type
         if fee_type not in ['vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future']:
             raise ValueError("Fee type only accepts: 'vn_future', 'vn_stock', 'vn_stock_no_adv', 'crypto', 'us_stock', 'us_future'")
         
-        # Check cash
+        # Check cash avail
         self.available_capital = self.initial_capital * self.allocation_per_trade
 
         if fee_type == "vn_future":
-            self.initial_capital = self.initial_capital / 100_000
-            self.available_capital = self.available_capital / 100_000
+            if self.currency == 'vnd':
+                self.initial_capital = self.initial_capital / 100_000
+                self.available_capital = self.available_capital / 100_000
+            else:
+                self.initial_capital = (self.initial_capital * 26_000) / 100_000
+                self.available_capital = (self.available_capital * 26_000) / 100_000
 
-        if self.available_capital < std_data["close"].iloc[0]:
-            raise ValueError(f'Not enough cash to buy 1 contract at {std_data["close"].iloc[0]}')
+            if self.available_capital < std_data["close"].iloc[0]:
+                raise ValueError(f'Not enough cash to buy 1 VN30F contract at {std_data["close"].iloc[0]} points')
 
-        
+
+        elif fee_type in ['us_stock', 'crypto']:
+            if self.currency.lower() == "vnd":
+                self.initial_capital = self.initial_capital / 26_000
+                self.available_capital = self.available_capital / 26_000
+
+            if self.available_capital < std_data["close"].iloc[0]:
+                raise ValueError(f'Not enough cash to buy 1 unit at {std_data["close"].iloc[0]} usd')
+
+
+        elif fee_type in ['vn_stock', 'vn_stock_no_adv']:
+            if self.currency.lower() == "usd":
+                self.initial_capital = self.initial_capital * 26_000
+                self.available_capital = self.available_capital * 26_000
+
+            if self.available_capital < std_data["close"].iloc[0]:
+                raise ValueError(f'Not enough cash to buy 1 unit at {std_data["close"].iloc[0]} vnd')
+
+        else:
+            raise NotImplementedError("I don't know about US Future market, please come here and add fee logic")
+
+
         self.fee_type = fee_type
 
         self.df = self.Gains_Calculation_Simple(std_data)
         self.year_count = len(self.df.resample('D').sum(min_count=1).dropna())/ self.trade_period
+
 
         
     def Gains_Calculation_Simple(self, df): 
@@ -345,7 +374,7 @@ class FinanceMetrics:
         df['gain'] = df['position'].shift(1) * df['close'].diff()
 
         # Fee
-        if self.fee_type in ['vn_stock', 'vn_stock_no_adv']:
+        if self.fee_type in ['vn_stock', 'vn_stock_no_adv', 'crypto']:
             # Fee in pct
             one_way_fee = Fee.fee[self.fee_type] * df['close']
         else:
@@ -488,7 +517,7 @@ class FinanceMetrics:
         if self.fixed_allocation:
             capital_base = (self.available_capital * (max_close / self.df['close'])).mean()
         else:
-            capital_base = ((df['total_equity'] * self.allocation_per_trade) * (max_close / self.df['close'])).mean()
+            capital_base = ((self.df['total_equity'] * self.allocation_per_trade) * (max_close / self.df['close'])).mean()
 
         if capital_base == 0 or pd.isna(capital_base):
             return 0.0, 0.0, 0.0
@@ -668,11 +697,11 @@ class FinanceBacktest:
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\Atsys.csv')
-    rep = FinanceBacktest(fee_type='vn_future', 
-                    currency='vnd', 
-                    initial_capital=123_099_000_200, 
-                    allocation_per_trade=0.4828,
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\CP.csv')
+    rep = FinanceBacktest(fee_type='crypto', 
+                    currency='usd', 
+                    initial_capital=10_000, 
+                    allocation_per_trade=1,
                     fixed_allocation=True,
                     risk_free_rate=0)
 
