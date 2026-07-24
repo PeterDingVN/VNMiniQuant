@@ -506,22 +506,18 @@ class FinanceMetrics:
 
         return total_profit, profit_after_fee_per_year
 
-
+    
     def Return(self):
         pnl = self.df['scaled_cum_gain_after_fee'].iloc[-1]
         year_no = self.year_count
 
-        daily_close = self.df['close'].resample('D').last().dropna()
-        max_close = daily_close.max()
+        close_proxy = self.df['close'].resample('Y').max()
+        close_proxy = close_proxy.reindex(self.df.index, method='ffill')
+        capital_base = (close_proxy * self.df['scaler']).mean()
 
-        if self.fixed_allocation:
-            capital_base = (self.available_capital * (max_close / self.df['close'])).mean()
-        else:
-            capital_base = ((self.df['total_equity'] * self.allocation_per_trade) * (max_close / self.df['close'])).mean()
-
-        if capital_base == 0 or pd.isna(capital_base):
+        if capital_base == 0 or pd.isna(capital_base) or year_no <= 0:
             return 0.0, 0.0, 0.0
- 
+
         total_return = (pnl / capital_base) * 100
         return_per_year = total_return / year_no
         cagr = ((1 + total_return / 100) ** (1 / year_no) - 1) * 100
@@ -590,8 +586,6 @@ class FinanceBacktest:
                                 currency=self.currency,
                                 fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
-        
-        name = self.fee_type.replace('_', ' ').title()
 
         margin = fin_bt.Margin()
 
@@ -620,8 +614,8 @@ class FinanceBacktest:
        Total Profit: {profit_3[0]:,.2f}
    Margin per Trade: {margin:.2f} bps
        Total Return: {return_3[0]:.2f}%
-    Return per year: {return_3[1]:.2f}%
-               CAGR: {return_3[2]:.2f}%
+ Mean Annual Return: {return_3[1]:.2f}%
+Comp. Annual Return: {return_3[2]:.2f}%
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
       Total Hitrate: {hitrate_2[2]:.2f}%
@@ -675,9 +669,9 @@ class FinanceBacktest:
         else:
             daily_dd = (peak - equity)/peak * 100
         
-        axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4, label="Drawdown")
+        axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4, label=f"MDD: {daily_dd.max():,.2f}%")
         axs[1].set_ylabel("Drawdown (%)", fontsize=LABEL_SIZE)
-        axs[1].set_xlabel("Date", fontsize=LABEL_SIZE)  # Added X-label for the bottom plot
+        axs[1].set_xlabel("Date", fontsize=LABEL_SIZE) 
         axs[1].tick_params(axis='both', labelsize=TICK_SIZE)
         axs[1].legend(fontsize=LEGEND_SIZE, loc="lower left")
         axs[1].grid(True, alpha=0.3)
