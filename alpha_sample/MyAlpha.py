@@ -23,7 +23,8 @@ import numpy as np
 
 class DonchianBreakout:
     def __init__(self, config: dict):
-        self.cfg = config
+        self.cfg = config 
+        # hello
     
     def run(self, df_):
         don_lookback = self.cfg["don_lookback"]
