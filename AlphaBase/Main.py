@@ -36,8 +36,8 @@ class DataManager:
     def generate(config: List[Dict]) -> pd.DataFrame:
         data_list = config['data']
         data_cfg = {key: [item[key] for item in data_list] for key in data_list[0]}
-        tv_username = config['username']
-        tv_password = config['password']
+        tv_username = config['tv_username']
+        tv_password = config['tv_password']
         update_data = config['update_data'].strip().lower() == 'true'
 
         database = OhlcvGenerator(**data_cfg, update_data=update_data, username=tv_username, password=tv_password)
