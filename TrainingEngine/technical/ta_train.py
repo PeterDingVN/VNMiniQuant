@@ -102,6 +102,22 @@ class Metric:
         raise KeyError(f"Unknown metric: {metric_name}")
 
 
+class NoImproveStop:
+    def __init__(self, patience):
+        self.patience = patience
+        self.best_vals = None
+        self.best_trial = None
+
+    def __call__(self, study, trial):
+        if study.best_trial.number == trial.number:
+            self.best_vals = trial.value
+            self.best_trial = trial.number
+
+        if self.best_trial is not None:
+            if trial.number - self.best_trial >= self.patience:
+                print(f"\033[93mTraining stopped. No improvement for {self.patience} trials.\033[0m")
+                study.stop()
+
 
 class TrainTA:
     def __init__(self,
@@ -227,7 +243,7 @@ class TrainTA:
             return float(np.mean(scores))
 
         study = optuna.create_study(direction=self.opt_dir)
-        study.optimize(objective, n_trials=self.n_trials)
+        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(patience=700)])
 
         return study.best_params
     
