@@ -673,7 +673,7 @@ Comp. Annual Return: {return_3[2]:.2f}%
         axs[1].set_ylabel("Drawdown (%)", fontsize=LABEL_SIZE)
         axs[1].set_xlabel("Date", fontsize=LABEL_SIZE) 
         axs[1].tick_params(axis='both', labelsize=TICK_SIZE)
-        axs[1].legend(fontsize=LEGEND_SIZE, loc="lower left")
+        axs[1].legend(fontsize=LEGEND_SIZE, loc="upper left", framealpha=1)
         axs[1].grid(True, alpha=0.3)
         axs[1].invert_yaxis()
 
