@@ -364,22 +364,19 @@ class _ValidateInputParams:
         elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
             return "crypto", symbol_upper
 
-
-        raise InputError(f'\nAsset {symbol} does not exist. Please pass \n' 
-                         f'- "US:" for us stock; "USF" for US futures \n' 
-                         f'- 3-letter or "VN:" for VN stock; "VNF" for Vietnam future \n'
-                         f'- usdt, usdc, busd, btc, eth for crypto \n'
-                         f'- "C&M" for commodities and macro indexes'
-                         )
+        return (None, None)
 
 
     def _print_intraday_warning(self, provider: str, symbol: str, timeframe: str) -> None:
-        unit = timeframe[-1]
-        is_intraday = (unit == 'm' or unit == 'h')
-        if not is_intraday:
-            return
-        if provider.startswith("tv_"):
-            print(f"{YELLOW}[WARNING] Trading View's limit on INTRADAY DATA for {symbol} can cause unexpected error! {RESET}")
+        if isinstance(provider, str):
+            unit = timeframe[-1]
+            is_intraday = (unit == 'm' or unit == 'h')
+            if not is_intraday:
+                return
+            if provider.startswith("tv_"):
+                print(f"{YELLOW}[WARNING] Trading View's limit on INTRADAY DATA for {symbol} can cause unexpected error! {RESET}")
+        else:
+            pass
 
 
     @staticmethod
@@ -406,7 +403,7 @@ class _SingleScraper:
     
     # Provider‑specific max candles per request
     MAX_LIMITS = {
-        "crypto": 1400,
+        "crypto": 1000,
         "trading_view": 5000
     }
 
