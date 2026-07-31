@@ -88,7 +88,7 @@ class TaStatTest:
 
         
         full_df = data.copy()
-        full_pos = self.alpha.run(full_df)
+        full_pos = pd.Series(self.alpha.run(full_df))
         full_df["position"] = full_pos.values
 
 
@@ -105,7 +105,7 @@ class TaStatTest:
 
             # Baseline run on chunk
             chunk_df = chunk.reindex()
-            pos_chunk = self.alpha.run(chunk_df)
+            pos_chunk = pd.Series(self.alpha.run(chunk_df))
             chunk_df["position"] = pos_chunk.values
 
 
@@ -116,7 +116,7 @@ class TaStatTest:
 
             # Shifted run on chunk (shifted by 1 bar)
             chunk_shifted = self._shift_input(chunk_df, shift_bars=1)
-            pos_shifted = self.alpha.run(chunk_shifted)
+            pos_shifted = pd.Series(self.alpha.run(chunk_shifted))
             chunk_shifted["position"] = pos_shifted.values
 
             try:
@@ -190,6 +190,7 @@ class TaStatTest:
             sys.stdout.write("\r\033[2K")
             sys.stdout.write("\r\033[K\033[31mFail overfit test because Sharpe too low\033[0m\n")
             sys.stdout.flush()
+            return False
 
 
         # ---------------------------------------------------------------------
