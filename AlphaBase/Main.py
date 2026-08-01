@@ -68,10 +68,10 @@ class ConfigManager:
     @staticmethod
     # ------------- Load All Config ---------------
     def _load_config() -> dict:
-        cfg_files = list(ALPHA_DIR.glob("*Cfg.json"))
+        cfg_files = list(ALPHA_DIR.glob("*.json"))
 
         if not cfg_files:
-            raise FileNotFoundError(f"No alpha config (*Cfg.json) found in {ALPHA_DIR}")
+            raise FileNotFoundError(f"No alpha config (*.json) found in {ALPHA_DIR}")
         if len(cfg_files) > 1:
             raise RuntimeError("Multiple config files found. Exactly one is allowed.")
 
@@ -81,10 +81,10 @@ class ConfigManager:
     @staticmethod
     # ------------- Load All Config ---------------
     def _dump_config(new_cfg: dict) -> dict:
-        cfg_files = list(ALPHA_DIR.glob("*Cfg.json"))
+        cfg_files = list(ALPHA_DIR.glob("*.json"))
 
         if not cfg_files:
-            raise FileNotFoundError(f"No alpha config (*Cfg.json) found in {ALPHA_DIR}")
+            raise FileNotFoundError(f"No alpha config (*.json) found in {ALPHA_DIR}")
         if len(cfg_files) > 1:
             raise RuntimeError("Multiple config files found. Exactly one is allowed.")
 
