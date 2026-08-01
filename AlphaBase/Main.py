@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 import numpy as np
+import re
 
 from DataApi import OhlcvGenerator
 from Backtest import FinanceBacktest, TaStatTest
@@ -70,13 +71,22 @@ class ConfigManager:
     def _load_config() -> dict:
         cfg_files = list(ALPHA_DIR.glob("*.json"))
 
-        if not cfg_files:
-            raise FileNotFoundError(f"No alpha config (*.json) found in {ALPHA_DIR}")
-        if len(cfg_files) > 1:
-            raise RuntimeError("Multiple config files found. Exactly one is allowed.")
+        if len(cfg_files) == 1:
+            config_file = cfg_files[0]
 
-        with open(cfg_files[0], "r", encoding="utf-8") as f:
-            return json.load(f)
+        else:
+            config_pattern = re.compile(r"(config|cfg)$", re.IGNORECASE)
+            config_files = [f for f in cfg_files if config_pattern.search(Path(f).stem)]
+
+            if len(config_files) == 1:
+                config_file = config_files[0]
+            elif len(config_files) > 1:
+                raise RuntimeError(f"Multiple config files found: {config_files}. Exactly one is allowed.")
+            else:
+                raise RuntimeError(f"No config file found")
+
+        with open(config_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
 
     @staticmethod
     # ------------- Load All Config ---------------
