@@ -14,70 +14,95 @@
 
 ## 📌 Introduction
 
-**VNMiniQuant** is a personal quantitative research tool built to automate alpha validation step.
-
-The core motivation is simple: individual investors rarely have access to institutional-grade system. 
-
-This tool partly bridges that gap — allowing individuals to **develop, backtest and deploy their alpha on live** before risking real capital.
-
+**VNMiniQuant** is a quant research workspace designed to help individual investors/traders develop and backtest their own alphas.
+Develop your own alpha and add a config file into designated folder, then run the exe.ipynb. Holistic backtest from financial to statistical would be ready!
 
 ---
 
 ## 🚀 Usage
 
-
-### Quick start
-
-COPY CODE
+### SET UP
 
 ```bash
 # clone the repo
 git clone https://github.com/PeterDingVN/VNMiniQuant.git
 
+# Get into the main work dir
 cd VNMiniQuant
 
 # install dependencies
 pip install -r requirements.txt
-
-# Quick start to test the output
-python -m core.exe
 ```
 
-OUTPUT
+
+### QUICK START
+#### Step 1: Build Alpha
+- Develop your idea for an alpha. For example, when close > EMA10 go long, else go short.
+- From the idea, access ```alpha_sample/MyAlpha.py``` and follow the instruction about an alpha's standard structure.
+- Convert your idea into code following that structure.
+
+
+#### Step 2: Configurate the config file
+- Auto pick file with "cfg" or "config" in the name if multiple .json found in ```alpha_sample/```. Named otherwise, only one .json is accepted.
+- Config files must have all the keys: ```"tv_username", "tv_password", "update_data", "data", "bt_cfg", "alpha_cfg"```:
+  + tv_username and tv_password: used to log into TradingView account, which may provides more data than Guest Mode.
+  + update_data: used to tell DataApi whether to scrape new data or reuse data scraped and stored in cache previously. However, auto scrape is still triggered if the data mentioned does not exist in cache.
+  + bt_cfg: provide config for backtets engine. Please pay attention to fee_type when backtesting different assets (crypto fee differ from VN future fee). Sometimes, error about "not enough cash" is raised, if so, go increase the init_capital. Other than that, default setting works fine.
+  + alpha_cfg: 
+    - filename: provide exactly the name of .py file that contains the alpha
+    - classname: provide exactly the name of the alpha class that contains core logic (please check out alpha file ```alpha_sample/MyAlpha.py``` for details)
+    - alpha_type: currently, only ```ta``` is supported, so leave the default config as it is
+    - params: the parameters for your alpha, check out the alpha file for more.
+- For an example, check out sample ```MyAlphaCfg.json```.
+
+#### Step 3: Run the alpha
+- Go into Research_Space.ipynb and follow the process. Enjoy!
+
+
+### OUTPUT
 
 ```
-Training Data up-to-date for VN30F1M is ready!
-START W4W TRAINING
-START STAT TEST
- 
-  Result can be optimistic from reality  
-============= STRATEGY RESULT ============
-Strategy validity pval: 1.0
-Return per year: -1.124%
-Sharpe: -0.839
-MDD: -1.314%
+ =========== Financial Backtest Vietnam Future ==========
+
+    Initial capital: 260,000,000.00
+     Ending capital: -886,495,789.01
+             Sharpe: -7.05
+            Sortino: -9.45
+             Calmar: -0.14
+                MDD: 1,147,499,362.52 (441.35%); Time: 2018-01-02 09:00:00 -> 2023-12-06 14:10:00
+       Total Profit: -1,146,495,789.01
+   Margin per Trade: -4.03 bps
+       Total Return: -371.56%
+ Mean Annual Return: -63.09%
+Comp. Annual Return: nan%
+       Hitrate Long: 4.87%
+      Hitrate Short: 8.20%
+      Total Hitrate: 6.82%
+        Longest Win: 7 days
+       Longest Loss: 24 days
+      Trade per Day: 3.55
+        Long Trades: 2255
+       Short Trades: 3017
 ```
+![alt text](_img/image.png)
 
-After this you can start with your first strategy (alpha) by preparing a .py file that returns dataframe with 'time', 'close', 'position' (name must be precise)
-
-Refer to ```strategy_sample\MyAlpha.py``` for reference
-And look at ```config\settings.py``` for params setting idea
 
 
 ---
 
 ## ⚠️ Disclaimer
 
-- **Data source**: Market data is fetched via [`vnstock`](https://github.com/thinh-vu/vnstock), an open-source library for Vietnamese stock data.
+- **Data source**: Market data is fetched mainly via Binance, TradingView, Vietstock
 - **Timeframe limitation**: Only **daily** OHLCV data is available through the public pipeline. Some additional data used internally (intraday, alternative datasets) comes from private sources and **cannot be published or redistributed**.
-- **Not financial advice**: This tool is built for research and educational purposes. Nothing produced by VNMiniQuant constitutes investment advice. Always do your own due diligence.
+- **Not financial advice**: This tool is pure research and backtest environment. No alphas or trading strategies are provided within.
+
 
 ---
 
 ## 🔭 Future Roadmap
 
 The following improvements are planned for future releases:
-
-- **Statistical testing** — expanded suite of hypothesis tests (t-test, Sharpe significance, bootstrap permutation, etc.)
-- **Financial metrics** — additional performance measures (Calmar ratio, Omega ratio, tail risk metrics, drawdown analysis)
+- Add PaperTrading module to allow real-life stress-test the alpha
+- Add LiveTrading module and API connection instruction
+- Add AlphaDashboard to monitor trades and portfolio performance while in paper trading and live.
 
