@@ -78,7 +78,7 @@ class ConfigManager:
             config_file = cfg_files[0]
 
         else:
-            config_pattern = re.compile(r"(config|cfg)$", re.IGNORECASE)
+            config_pattern = re.compile(r"config|cfg", re.IGNORECASE)
             config_files = [f for f in cfg_files if config_pattern.search(Path(f).stem)]
 
             if len(config_files) == 1:
