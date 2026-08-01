@@ -66,6 +66,9 @@ class Backtest:
 
 
 class ConfigManager:
+    REQUIRED_KEYS = {
+    "tv_username", "tv_password", "update_data", "data", "bt_cfg", "alpha_cfg"}
+
     @staticmethod
     # ------------- Load All Config ---------------
     def _load_config() -> dict:
@@ -86,7 +89,13 @@ class ConfigManager:
                 raise RuntimeError(f"No config file found")
 
         with open(config_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+            final_cfg = json.load(f)
+
+        missing = ConfigManager.REQUIRED_KEYS - final_cfg.keys()
+        if missing:
+            raise ValueError(
+                f"Config file is missing required keys: {', '.join(sorted(missing))}")
+        return final_cfg
 
     @staticmethod
     # ------------- Load All Config ---------------
