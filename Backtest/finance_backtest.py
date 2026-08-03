@@ -214,7 +214,14 @@ class StandardizeInput:
 
         df = df.rename(columns=rename_map)
 
-        # check cols
+        # check dup cols
+        dup_cols = df.columns[df.columns.duplicated()].unique()
+        if len(dup_cols) > 0:
+            raise ValueError(
+                f"Duplicate columns found after re_name: {dup_cols.tolist()}"
+            )
+
+        # check cols existence
         missing_cols = [
             col
             for col in StandardizeInput.REQUIRED_COLS
@@ -614,7 +621,7 @@ class FinanceBacktest:
        Total Profit: {profit_3[0]:,.2f}
    Margin per Trade: {margin:.2f} bps
        Total Return: {return_3[0]:.2f}%
- Mean Annual Return: {return_3[1]:.2f}%
+ Avg. Annual Return: {return_3[1]:.2f}%
 Comp. Annual Return: {return_3[2]:.2f}%
        Hitrate Long: {hitrate_2[0]:.2f}%
       Hitrate Short: {hitrate_2[1]:.2f}%
@@ -691,8 +698,8 @@ Comp. Annual Return: {return_3[2]:.2f}%
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\CP.csv')
-    rep = FinanceBacktest(fee_type='crypto', 
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\DAT264.csv')
+    rep = FinanceBacktest(fee_type='vn_future', 
                     currency='usd', 
                     initial_capital=10_000, 
                     allocation_per_trade=1,
