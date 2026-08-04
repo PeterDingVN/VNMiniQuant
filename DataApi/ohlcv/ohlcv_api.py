@@ -883,6 +883,8 @@ class OhlcvGenerator:
         if cached_df is not None and not cached_df.empty:
             if not self.update_data:
                 print(f"[CACHE] Loaded {symbol}_{tf} sucessfully")
+                cached_df = cached_df.drop_duplicates(subset=['datetime']) \
+                                     .dropna(how="all", subset=cached_df.columns.drop("datetime"))
                 return (symbol, cached_df, None)
             
             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
@@ -914,7 +916,8 @@ class OhlcvGenerator:
             result["datetime"] = pd.to_datetime(result["datetime"])
             result = (
                     pd.concat([cached_df, result], ignore_index=True)
-                    .drop_duplicates()
+                    .drop_duplicates(subset=['datetime'])
+                    .dropna(how="all", subset=cached_df.columns.drop("datetime"))
                     .reset_index(drop=True)
                     .sort_values(by='datetime')
                     )
