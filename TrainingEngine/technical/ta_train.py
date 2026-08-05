@@ -228,6 +228,8 @@ class TrainTA:
                 df = fold_df.copy()
 
                 pos = alpha.run(df)
+                if isinstance(pos, pd.DataFrame):
+                    raise ValueError("Check your alpha .py file. Alpha output must be array or Series, not DataFrame")
                 df["position"] = np.asarray(pos)
 
                 try:
