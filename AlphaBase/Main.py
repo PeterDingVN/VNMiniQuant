@@ -264,8 +264,7 @@ class AlphaBase:
             # ta
             print(f"{BLUE} ========== Alpha Robustness Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} ==========")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
-            self.bt_stat.stat_check(data=data)
+            self.bt_stat.stat_check(data=data, oos_ratio=oos_ratio)
 
         else:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
-    

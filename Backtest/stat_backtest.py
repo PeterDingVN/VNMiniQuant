@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .finance_backtest import FinanceMetrics, ZeroPosError
+from TrainingEngine import TrainTestSplit
 
 warnings.filterwarnings('ignore')
 
@@ -174,7 +175,7 @@ class TaStatTest:
             sys.stdout.flush()
             
 
-    def overfit(self, data: pd.DataFrame, delta: float = 0.05, min_flatness: float = 0.7):
+    def overfit(self, data: pd.DataFrame, oos_ratio: float):
 
         sys.stdout.write("\033[35mChecking overfit ...\033[0m")
         sys.stdout.flush()
@@ -185,10 +186,26 @@ class TaStatTest:
         df_base["position"] = np.asarray(self.alpha.run(df_base))
         base_sr = self._metric_eval(df_base)['sharpe']
 
+
+        # -----------------------------------------------------------------
+        # Prelim check for overfit
+        # -----------------------------------------------------------------
+
         # Fail immediately if Sharpe <= 0
         if base_sr <= 0:
             sys.stdout.write("\r\033[2K")
             sys.stdout.write("\r\033[K\033[31mFail overfit test because Sharpe too low\033[0m\n")
+            sys.stdout.flush()
+            return False
+
+        # Check if IS is too far from OS -> fail
+        is_df, oos_df = TrainTestSplit(test_size=oos_ratio).split(df_base)
+        is_perf = self._metric_eval(is_df)['sharpe']
+        oos_perf = self._metric_eval(oos_df)['sharpe']
+        result = oos_perf / is_perf if is_perf not in [0, np.nan, -np.inf, np.inf] else 0
+        if result < 0.85:
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\r\033[K\033[31mFail overfit test.\033[0m\n")
             sys.stdout.flush()
             return False
 
@@ -232,11 +249,11 @@ class TaStatTest:
 
 
     # ----- MAIN FUNC ------
-    def stat_check(self, data: pd.DataFrame):
+    def stat_check(self, data: pd.DataFrame, oos_ratio: float):
         self.future_leak(data=data)
 
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-        self.overfit(data=data)
+        self.overfit(data=data, oos_ratio=oos_ratio)
         
