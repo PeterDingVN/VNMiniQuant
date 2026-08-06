@@ -234,7 +234,19 @@ class TrainTA:
             if not scores or any(pd.isna(s) for s in scores):
                 return -9999
 
-            return float(np.mean(scores))
+            score = np.asarray(score)
+            mean_score = np.mean(score)
+            median_score = np.median(score)
+            spread = np.abs(score - median_score)
+
+            # Sublinear penalty
+            penalty = np.mean(np.sqrt(spread))
+
+            if self.opt_dir == "maximize":
+                return mean_score - 0.25 * penalty
+            else:
+                return mean_score + 0.25 * penalty
+            
 
         study = optuna.create_study(direction=self.opt_dir)
         study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(patience=700)])
