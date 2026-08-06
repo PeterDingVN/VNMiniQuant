@@ -23,8 +23,7 @@ class Metric:
         "return": lambda bt: bt.Return()[1],
         "hitrate": lambda bt: bt.Hitrate()[2],
         "total_trades": lambda bt: bt.Total_Trade()[0] + bt.Total_Trade()[1],
-        "profit": lambda bt: bt.Profit()[1],
-        "custom": lambda bt: None,
+        "profit": lambda bt: bt.Profit()[1]
     }
 
     @classmethod
@@ -83,15 +82,8 @@ class Metric:
         return float(_eval(tree))
 
     @classmethod
-    def score(cls, metric_name: str, bt, expr: str | None = None) -> float:
-        if expr is not None:
-            return cls._safe_eval(expr, bt)
-
+    def score(cls, metric_name: str, bt) -> float:
         normalized = cls._normalize_metric_name(metric_name)
-        if normalized == "custom":
-            if expr is None:
-                raise ValueError("Custom metric requires an expression.")
-            return cls._safe_eval(expr, bt)
 
         if normalized in cls.metric_map:
             return float(cls.metric_map[normalized](bt))
