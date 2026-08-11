@@ -26,6 +26,7 @@ PINK = "\033[35m"
 GREEN = "\033[92m"
 PURPLE = "\033[95m"
 RESET = "\033[0m"
+DATE_COLS = ['datetime', 'date', 'time', 'timestamp']
 
 
 # =========== Helper class ===============
@@ -882,9 +883,19 @@ class OhlcvGenerator:
 
         if cached_df is not None and not cached_df.empty:
             if not self.update_data:
+                cached_df = (cached_df
+                                .drop_duplicates(subset=cached_df.columns)
+                                .dropna(how='all')
+                            )
+                cached_df.columns = [c.lower() for c in cached_df.columns]
+                
+                existing_date_cols = next((col for col in DATE_COLS if col in cached_df.columns), None)
+                if existing_date_cols==None:
+                    raise ValueError("Cached data has no datetime column, please add one")
+                
+                cached_df[existing_date_cols] = pd.to_datetime(cached_df[existing_date_cols])
+
                 print(f"[CACHE] Loaded {symbol}_{tf} sucessfully")
-                cached_df = cached_df.drop_duplicates(subset=['datetime']) \
-                                     .dropna(how="all", subset=cached_df.columns.drop("datetime"))
                 return (symbol, cached_df, None)
             
             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
@@ -916,8 +927,8 @@ class OhlcvGenerator:
             result["datetime"] = pd.to_datetime(result["datetime"])
             result = (
                     pd.concat([cached_df, result], ignore_index=True)
-                    .drop_duplicates(subset=['datetime'])
-                    .dropna(how="all", subset=cached_df.columns.drop("datetime"))
+                    .drop_duplicates(subset=cached_df.columns)
+                    .dropna(how='all')
                     .reset_index(drop=True)
                     .sort_values(by='datetime')
                     )
