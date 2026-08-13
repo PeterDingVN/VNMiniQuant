@@ -234,7 +234,7 @@ class TrainTA:
             if not scores or any(pd.isna(s) for s in scores):
                 return -9999
 
-            score = np.asarray(score)
+            score = np.asarray(scores)
             mean_score = np.mean(score)
             median_score = np.median(score)
             spread = np.abs(score - median_score)
