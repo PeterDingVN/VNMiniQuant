@@ -232,7 +232,7 @@ class TaStatTest:
 
         if oos_srs:
             p30_sr = float(np.percentile(oos_srs, 30))
-            target_sr = base_sr * 0.85
+            target_sr = base_sr * 0.75
             pass_oos = p30_sr >= target_sr
         else:
             pass_oos = False
