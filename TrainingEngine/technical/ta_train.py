@@ -218,6 +218,8 @@ class TrainTA:
             scores = []
             for fold_df in is_data_list:
                 df = fold_df.copy()
+                if isinstance(df.index, pd.RangeIndex):
+                    df = df.reset_index()
 
                 pos = alpha.run(df)
                 if isinstance(pos, pd.DataFrame):

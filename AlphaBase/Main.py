@@ -248,14 +248,14 @@ class AlphaBase:
                             ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
                 print(' ')
                 print(label)
-                pos = alpha.run(df)
+                pos = alpha.run(df.reset_index())
                 df = df.copy()
                 df.loc[:, 'position'] = np.asarray(pos)
                 fin.pnl_report(df, plot=plot_pnl)
 
             print(' ')
             print("\033[34mALL DATA PERFORMANCE\033[0m")
-            pos = alpha.run(data)
+            pos = alpha.run(data.reset_index())
             data = data.copy()
             data.loc[:, 'position'] = np.asarray(pos)
             fin.pnl_report(data, plot=plot_pnl)
