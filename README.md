@@ -15,7 +15,8 @@
 ## 📌 Introduction
 
 **VNMiniQuant** is a quant research workspace designed to help individual investors/traders develop and backtest their own alphas.
-Develop your own alpha and add a config file into designated folder, then run the exe.ipynb. Holistic backtest from financial to statistical would be ready!
+The tool would be especially helpful for Vietnam Stock, Vietnam Future and Crypto.
+Enjoy!
 
 ---
 
@@ -56,33 +57,36 @@ pip install -r requirements.txt
 - For an example, check out sample ```MyAlphaCfg.json```.
 
 #### Step 3: Run the alpha
-- Go into Research_Space.ipynb and follow the process. Enjoy!
+- Go into Research_Space.ipynb and follow the process.
+- For most recent updates, check out ```UPDATE_LOG.md```
 
 
 ### OUTPUT
 
 ```
- =========== Financial Backtest Vietnam Future ==========
+========== Financial Backtest Vietnam Future ==========
+ 
+IN SAMPLE PERFORMANCE
 
     Initial capital: 260,000,000.00
-     Ending capital: -886,495,789.01
-             Sharpe: -7.05
-            Sortino: -9.45
-             Calmar: -0.14
-                MDD: 1,147,499,362.52 (441.35%); Time: 2018-01-02 09:00:00 -> 2023-12-06 14:10:00
-       Total Profit: -1,146,495,789.01
-   Margin per Trade: -4.03 bps
-       Total Return: -371.56%
- Mean Annual Return: -63.09%
-Comp. Annual Return: nan%
-       Hitrate Long: 4.87%
-      Hitrate Short: 8.20%
-      Total Hitrate: 6.82%
-        Longest Win: 7 days
-       Longest Loss: 24 days
-      Trade per Day: 3.55
-        Long Trades: 2255
-       Short Trades: 3017
+     Ending capital: 780,677,560.41
+             Sharpe: 1.98
+            Sortino: 2.92
+             Calmar: 1.91
+                MDD: 47,129,011.34 (18.13%); Time: 2020-10-30 14:00:00 -> 2021-01-13 11:00:00
+       Total Profit: 520,677,560.41
+   Margin per Trade: 14.59 bps
+       Total Return: 180.32%
+ Avg. Annual Return: 34.69%
+Comp. Annual Return: 21.93%
+       Hitrate Long: 47.30%
+      Hitrate Short: 46.87%
+      Total Hitrate: 47.16%
+        Longest Win: 12 days
+       Longest Loss: 11 days
+      Trade per Day: 0.43
+        Long Trades: 287
+       Short Trades: 275
 ```
 ![alt text](_img/image.png)
 
