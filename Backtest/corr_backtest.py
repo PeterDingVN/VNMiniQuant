@@ -11,8 +11,6 @@ class CorrTest:
 
         self.config_for_bt = config
         self.folder = Path(__file__).resolve().parent.parent/ "Alpha_Repo" / self.config_for_bt ['fee_type']
-        if not self.folder.exists():
-            raise FileNotFoundError(f"Cannot find folder {self.folder}")
 
     def check_alpha_corr(self, df: pd.DataFrame):
         mas = df.copy()
