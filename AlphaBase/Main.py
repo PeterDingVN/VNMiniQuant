@@ -9,7 +9,7 @@ import numpy as np
 import re
 
 from DataApi import OhlcvGenerator
-from Backtest import FinanceBacktest, TaStatTest
+from Backtest import FinanceBacktest, TaStatTest, CorrTest
 from .Helper import StandardizedDataDict
 from TrainingEngine import TrainTA, TrainTestSplit
 
@@ -62,6 +62,11 @@ class Backtest:
             return TaStatTest()
         else:
             raise NotImplementedError("ML is udner dev, please use ta for now!")
+
+    @staticmethod
+    def corr_test(config):
+        corr = CorrTest(config=config)
+        return corr
 
 
 
@@ -195,6 +200,9 @@ class AlphaBase:
         # Stat test
         self.bt_stat = Backtest.stat_test(self.config["alpha_cfg"]["alpha_type"])
 
+        # Corr test
+        self.bt_corr = Backtest.corr_test(self.config['bt_cfg'])
+
 
     def generate_data(self, dt_name: str = None):
         if dt_name:
@@ -244,6 +252,9 @@ class AlphaBase:
 
             print(f"{BLUE} ========== Financial Backtest {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} ==========")
 
+            # ==========================================
+            #               PnL TEST
+            # ==========================================
             for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
                             ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
                 print(' ')
@@ -259,12 +270,55 @@ class AlphaBase:
             data = data.copy()
             data.loc[:, 'position'] = np.asarray(pos)
             fin.pnl_report(data, plot=plot_pnl)
+
                     
-            # stat test
-            # ta
-            print(f"{BLUE} ========== Alpha Robustness Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} ==========")
+            # ==========================================
+            #               STAT TEST
+            # ==========================================
+
+            # ------- TA -------------
+            print(f"{BLUE} ========== Alpha Robustness Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =========={RESET}")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
             self.bt_stat.stat_check(data=data, oos_ratio=oos_ratio)
 
+            # --------- ML --------------
+            # Under dev
+
+
+            # ==========================================
+            #               CORRELATION TEST
+            # ==========================================
+            print(' ')
+            print(f"{BLUE} ========== Correlation Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =============={RESET}")
+            self.bt_corr.check_alpha_corr(df=data)
+
         else:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
+
+
+    def save_alpha(self, data: pd.DataFrame, name: str):
+
+        # Make alpha
+        if self.config['alpha_cfg']['alpha_type'] == 'ta':
+            alpha = self.class_alpha(self.config['alpha_cfg']['params'])
+            data2 = data.copy()
+            data2.columns = [c.lower() for c in data2.columns]
+
+            pos = alpha.run(data2.reset_index())
+            data2.loc[:, 'position'] = np.asarray(pos)
+
+        else:
+            raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
+
+        # save data into target folder
+        type_ = self.config['bt_cfg']['fee_type']
+        ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Alpha_Repo" / type_
+        ALPHA_POS_DIR.mkdir(parents=True, exist_ok=True)
+
+        file_path = ALPHA_POS_DIR / f"{name}.csv"
+        if file_path.exists():
+            raise FileExistsError(f"File named {name}.csv already exist!")
+
+        data2[['datetime', 'close', 'position']].to_csv(file_path, index=True)
+
+
