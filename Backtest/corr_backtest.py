@@ -10,7 +10,7 @@ class CorrTest:
     def __init__(self, config):
 
         self.config_for_bt = config
-        self.folder = Path(__file__).resolve().parent.parent/ "Alpha_Repo" / self.config_for_bt ['fee_type']
+        self.folder = Path(__file__).resolve().parent.parent/ "Backtest/alpha_position" / self.config_for_bt ['fee_type']
 
     def check_alpha_corr(self, df: pd.DataFrame):
         mas = df.copy()
@@ -63,13 +63,21 @@ class CorrTest:
                     lsuffix="_alpha",
                     rsuffix="_mas")
 
+                if merged.empty:
+                    results.append({
+                        "Alpha": os.path.splitext(os.path.basename(file))[0],
+                        "Pearson(%)": "date mismatch",
+                        "Spearman(%)": "date mismatch"
+                    })
+                    continue
+
                 corr = merged["gain_after_fee_alpha"].corr(merged["gain_after_fee_mas"])
                 corr_sp = merged["gain_after_fee_alpha"].corr(merged["gain_after_fee_mas"], method='spearman')
 
                 results.append({
                     "Alpha": os.path.splitext(os.path.basename(file))[0],
-                    "Pearson": corr,
-                    "Spearman": corr_sp
+                    "Pearson(%)": corr * 100,
+                    "Spearman(%)": corr_sp * 100
                     })
 
 
@@ -86,14 +94,14 @@ class CorrTest:
 
         result_df = (
             result_df
-            .sort_values("Pearson", ascending=False, na_position="last")
+            .sort_values("Pearson(%)", ascending=False, na_position="last")
             .reset_index(drop=True)
         )
-        result_df["Pearson"] = result_df["Pearson"].map(lambda x: f"{x:.4f}")
-        result_df["Spearman"] = result_df["Spearman"].map(lambda x: f"{x:.4f}")
+        result_df["Pearson(%)"] = result_df["Pearson(%)"].map(lambda x: f"{x:.1f}")
+        result_df["Spearman(%)"] = result_df["Spearman(%)"].map(lambda x: f"{x:.1f}")
 
         # Output table
-        table = result_df.to_string(index=False, col_space=9)
+        table = result_df.to_string(index=False, col_space=15)
         lines = table.splitlines()
         separator = "-" * len(lines[0])
 

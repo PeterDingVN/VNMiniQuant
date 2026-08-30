@@ -296,7 +296,7 @@ class AlphaBase:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
 
 
-    def save_alpha(self, data: pd.DataFrame, name: str):
+    def save_position(self, data: pd.DataFrame, name: str):
 
         # Make alpha
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
@@ -312,7 +312,7 @@ class AlphaBase:
 
         # save data into target folder
         type_ = self.config['bt_cfg']['fee_type']
-        ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Alpha_Repo" / type_
+        ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Backtest/alpha_position" / type_
         ALPHA_POS_DIR.mkdir(parents=True, exist_ok=True)
 
         file_path = ALPHA_POS_DIR / f"{name}.csv"
