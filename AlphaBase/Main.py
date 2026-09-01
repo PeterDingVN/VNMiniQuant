@@ -1,6 +1,7 @@
 import json
 import importlib.util
 from pathlib import Path
+import shutil
 from typing import List, Dict
 from dataclasses import dataclass
 
@@ -15,6 +16,8 @@ from TrainingEngine import TrainTA, TrainTestSplit
 
 
 ALPHA_DIR = Path(__file__).resolve().parent.parent/ "Alpha" # --> Change this to alpha_sample
+ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Backtest/alpha_position"
+ALPHA_LOGIC_DIR = Path(__file__).resolve().parent.parent/ "Alpha_Repo"
 
 
 BLUE = "\033[38;5;45m"
@@ -204,12 +207,16 @@ class AlphaBase:
         self.bt_corr = Backtest.corr_test(self.config['bt_cfg'])
 
 
+    # =========== GEN DATA ==================
     def generate_data(self, dt_name: str = None):
         if dt_name:
             return self.dm_list[dt_name]
         return self.dm_list
 
+    # How to load artifact
 
+
+    # =========== TRAIN ALPHA ===============
     def train(self, data: pd.DataFrame, param_range: dict, **kwargs):
 
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
@@ -234,6 +241,7 @@ class AlphaBase:
             raise NotImplementedError("ML is under development, please use 'ta' as alpha type instead")
 
 
+    # ============== BACKTEST ALPHA =====================
     def backtest(self, data: pd.DataFrame, oos_ratio: float, plot_pnl: bool = True):
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
             alpha = self.class_alpha(self.config['alpha_cfg']['params'])
@@ -296,7 +304,9 @@ class AlphaBase:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
 
 
-    def save_position(self, data: pd.DataFrame, name: str):
+    # ================ SAVE ALPHA =========================
+
+    def save_position(self, data: pd.DataFrame):
 
         # Make alpha
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
@@ -312,13 +322,25 @@ class AlphaBase:
 
         # save data into target folder
         type_ = self.config['bt_cfg']['fee_type']
-        ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Backtest/alpha_position" / type_
-        ALPHA_POS_DIR.mkdir(parents=True, exist_ok=True)
+        alpha_pos_dir = ALPHA_POS_DIR / type_
+        alpha_pos_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = ALPHA_POS_DIR / f"{name}.csv"
+        name = self.config['alpha_cfg']['filename']
+        file_path = alpha_pos_dir / f"{name}.csv"
         if file_path.exists():
-            raise FileExistsError(f"File named {name}.csv already exist!")
+            raise FileExistsError(f"Filename already exists. In your alpha folder, please change .py name and 'filename' name in config.")
 
         data2[['datetime', 'close', 'position']].to_csv(file_path, index=True)
+
+
+    def save_logic(self):
+        type_ = self.config['bt_cfg']['fee_type']
+        alpha_logic_dir = ALPHA_LOGIC_DIR / type_
+        alpha_logic_dir.mkdir(parents=True, exist_ok=True)
+
+        name = self.config['alpha_cfg']['filename']
+        dst_dir = alpha_logic_dir / name
+
+        shutil.copytree(ALPHA_DIR, dst_dir, dirs_exist_ok=True)
 
 
