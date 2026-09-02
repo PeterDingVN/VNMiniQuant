@@ -83,7 +83,7 @@ class TaStatTest:
         sys.stdout.write("\033[35mChecking future leak ...\033[0m")
         sys.stdout.flush()
 
-        n_iter = 30
+        n_iter = 35
         drop_count = 0
         diff_count = 0
 
@@ -218,50 +218,43 @@ class TaStatTest:
         # ---------------------------------------------------------------------
         # Check if 30th Sharpe > n% of base Sharpe
         # ---------------------------------------------------------------------
-        k_folds = 30
+        k_folds = 35
         warmup = self._warmup_start()
         oos_srs = []
 
-        # Get fold len
         params = self.config["alpha_cfg"]["params"]
-        numeric_params = [
-            value for value in params.values()
-            if isinstance(value, (int, float, np.integer, np.floating))
-        ]
-        max_param = max(numeric_params, default=0)
-        min_fold_len = max_param * 2
+        numeric_params = [value for value in params.values() if isinstance(value, (int, float, np.integer, np.floating))]
+        min_fold_len = max(numeric_params, default=0) * 2
 
-        if len(data) <= min_fold_len:
+        if len(data) < k_folds * min_fold_len:
             sys.stdout.write("\r\033[2K")
             sys.stdout.write("\r\033[K\033[31mData too short for overfit test.\033[0m\n")
             sys.stdout.flush()
             return
 
-        # Random generator
-        rng = np.random.default_rng()
+        # Split into folds, NON-OVERLAP
+        fold_size = len(data) // k_folds
 
-        for _ in range(k_folds):
+        for k in range(k_folds):
+            start_idx = k * fold_size
+            end_idx = (
+                (k + 1) * fold_size
+                if k < k_folds - 1
+                else len(data)
+            )
 
-            # Keep trying until we get a valid fold
-            while True:
-                start_idx = rng.integers(0, len(data) - min_fold_len)
-                max_fold_len = len(data) - start_idx
-
-                if max_fold_len <= min_fold_len:
-                    continue
-
-                fold_len = rng.integers(min_fold_len + 1, max_fold_len + 1)
-                end_idx = start_idx + fold_len
-
-                if fold_len > min_fold_len:
-                    break
+            if end_idx - start_idx < min_fold_len:
+                continue
 
             context_start = max(0, start_idx - warmup)
-            is_df = data.iloc[context_start:end_idx].copy()
 
-            # Generate position before metric evaluation
-            is_df["position"] = np.asarray(self.alpha.run(is_df))
-            eval_res = self._metric_eval(is_df)
+            fold_df = data.iloc[context_start:end_idx].copy()
+            fold_df["position"] = np.asarray(self.alpha.run(fold_df))
+
+            # Remove warmup period from actual evaluation
+            eval_start = start_idx - context_start
+            eval_df = fold_df.iloc[eval_start:].copy()
+            eval_res = self._metric_eval(eval_df)
             oos_sr = eval_res.get("sharpe", np.nan)
 
             if np.isfinite(oos_sr):
