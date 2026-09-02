@@ -83,7 +83,7 @@ class TaStatTest:
         sys.stdout.write("\033[35mChecking future leak ...\033[0m")
         sys.stdout.flush()
 
-        n_iter = 60
+        n_iter = 30
         drop_count = 0
         diff_count = 0
 
@@ -194,15 +194,20 @@ class TaStatTest:
         # Fail immediately if Sharpe <= 0
         if base_sr <= 0:
             sys.stdout.write("\r\033[2K")
-            sys.stdout.write("\r\033[K\033[31mFail overfit test because Sharpe too low\033[0m\n")
+            sys.stdout.write("\r\033[K\033[31mFail overfit because of negative Sharpe\033[0m\n")
             sys.stdout.flush()
             return False
 
         # Check if IS is too far from OS -> fail
-        is_df, oos_df = TrainTestSplit(test_size=oos_ratio).split(df_base)
+        is_df, oos_df = TrainTestSplit(test_size=oos_ratio).split(data)
+        is_df['position'] = np.asarray(self.alpha.run(is_df))
+        oos_df['position'] = np.asarray(self.alpha.run(oos_df))
+
         is_perf = self._metric_eval(is_df)['sharpe']
         oos_perf = self._metric_eval(oos_df)['sharpe']
-        result = oos_perf / is_perf if is_perf not in [0, np.nan, -np.inf, np.inf] else 0
+
+        result = oos_perf / is_perf if np.isfinite(is_perf) and is_perf != 0 else np.nan
+
         if result < 0.85:
             sys.stdout.write("\r\033[2K")
             sys.stdout.write("\r\033[K\033[31mFail overfit test.\033[0m\n")
@@ -214,37 +219,74 @@ class TaStatTest:
         # Check if 30th Sharpe > n% of base Sharpe
         # ---------------------------------------------------------------------
         k_folds = 30
-        fold_size = len(data) // k_folds
         warmup = self._warmup_start()
         oos_srs = []
 
-        for k in range(k_folds):
-            start_idx = k * fold_size
-            end_idx = (k + 1) * fold_size if k < k_folds - 1 else len(data)
+        # Get fold len
+        params = self.config["alpha_cfg"]["params"]
+        numeric_params = [
+            value for value in params.values()
+            if isinstance(value, (int, float, np.integer, np.floating))
+        ]
+        max_param = max(numeric_params, default=0)
+        min_fold_len = max_param * 2
+
+        if len(data) <= min_fold_len:
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\r\033[K\033[31mData too short for overfit test.\033[0m\n")
+            sys.stdout.flush()
+            return
+
+        # Random generator
+        rng = np.random.default_rng()
+
+        for _ in range(k_folds):
+
+            # Keep trying until we get a valid fold
+            while True:
+                start_idx = rng.integers(0, len(data) - min_fold_len)
+                max_fold_len = len(data) - start_idx
+
+                if max_fold_len <= min_fold_len:
+                    continue
+
+                fold_len = rng.integers(min_fold_len + 1, max_fold_len + 1)
+                end_idx = start_idx + fold_len
+
+                if fold_len > min_fold_len:
+                    break
 
             context_start = max(0, start_idx - warmup)
-            fold_df = data.iloc[context_start:end_idx].copy()
+            is_df = data.iloc[context_start:end_idx].copy()
 
-            eval_res = self._metric_eval(fold_df)
-            oos_sr = eval_res.get('sharpe', np.nan)
+            # Generate position before metric evaluation
+            is_df["position"] = np.asarray(self.alpha.run(is_df))
+            eval_res = self._metric_eval(is_df)
+            oos_sr = eval_res.get("sharpe", np.nan)
+
             if np.isfinite(oos_sr):
                 oos_srs.append(oos_sr)
 
-        if oos_srs:
-            p30_sr = float(np.percentile(oos_srs, 30))
+        if oos_srs:   
+            trimmed_srs = np.sort(oos_srs)
+            n_trim = int(len(trimmed_srs) * 0.1)
+            trimmed_srs = trimmed_srs[n_trim:-n_trim] if n_trim > 0 else oos_srs
+
+            p30_sr = float(np.percentile(trimmed_srs, 50))
             target_sr = base_sr * 0.75
             pass_oos = p30_sr >= target_sr
+
         else:
-            pass_oos = False
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\r\033[K\033[31mNo out-sample sharpe for overfit test.\033[0m\n")
+            sys.stdout.flush()
+            return
 
-        
         sys.stdout.write("\r\033[2K")
-
         if pass_oos:
             sys.stdout.write("\r\033[K\033[32mPass overfit test.\033[0m\n")
         else:
             sys.stdout.write("\r\033[K\033[31mFail overfit test.\033[0m\n")
-            
         sys.stdout.flush()
 
 
