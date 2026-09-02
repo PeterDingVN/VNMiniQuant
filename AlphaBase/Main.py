@@ -305,8 +305,7 @@ class AlphaBase:
 
 
     # ================ SAVE ALPHA =========================
-
-    def save_position(self, data: pd.DataFrame):
+    def save_alpha(self, data: pd.DataFrame):
 
         # Make alpha
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
@@ -320,8 +319,9 @@ class AlphaBase:
         else:
             raise NotImplementedError("ML is under developement, use alphatype = 'ta' instead.")
 
-        # save data into target folder
         type_ = self.config['bt_cfg']['fee_type']
+
+        # save Pos
         alpha_pos_dir = ALPHA_POS_DIR / type_
         alpha_pos_dir.mkdir(parents=True, exist_ok=True)
 
@@ -333,8 +333,7 @@ class AlphaBase:
         data2[['datetime', 'close', 'position']].to_csv(file_path, index=True)
 
 
-    def save_logic(self):
-        type_ = self.config['bt_cfg']['fee_type']
+        # Save logic
         alpha_logic_dir = ALPHA_LOGIC_DIR / type_
         alpha_logic_dir.mkdir(parents=True, exist_ok=True)
 
