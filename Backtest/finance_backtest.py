@@ -43,8 +43,7 @@ class Fee():
 
 
 
-#  ------ Market regime rule ----
-
+#  ------ Market regime rule ------
 # VN stock market
 @dataclass
 class VnStockRule:
@@ -148,6 +147,21 @@ class VnStockRule:
         data['position'] = out
         return data
 
+# VN Future
+@dataclass
+class VnFutureRule:
+    def apply(self, data: pd.DataFrame) -> pd.DataFrame:
+        dt = data["datetime"].dt
+        mask = (
+            (dt.weekday == 3) &
+            (dt.day >= 15) & (dt.day <= 21) &
+            (dt.hour == 14) & (dt.minute >= 45)
+        )
+        data.loc[mask, "position"] = 0
+
+        return data
+
+
 
 
 # -------------  Standardize Input -------------
@@ -178,6 +192,8 @@ class StandardizeInput:
             data_out = VnStockRule().apply(data)
         elif fee_type == 'vn_stock_no_adv':
             data_out =  VnStockRule(advanced_cash=False).apply(data)
+        elif fee_type == 'vn_future':
+            data_out = VnFutureRule().apply(data)
         else:
             return data
         return data_out
