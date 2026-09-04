@@ -819,7 +819,7 @@ class OhlcvGenerator:
 
         self.cache_dir = os.path.join(
                         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-                        "cached_data")
+                        "_research_data")
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def _get_cache_path(self, symbol: str, timeframe: Optional[str] = None) -> str:
