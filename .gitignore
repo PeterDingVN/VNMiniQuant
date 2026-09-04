@@ -5,8 +5,8 @@ __pycache__/
 _0_testing_note/
 0_testing_note/
 
-DataApi/_research_data/
-DataApi/_live_data/
+DataApi/ohlcv/_research_data/
+DataApi/ohlcv/_live_data/
 
 alpha/
 Alpha/
