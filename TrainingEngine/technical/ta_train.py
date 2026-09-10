@@ -95,15 +95,21 @@ class Metric:
 
 
 class NoImproveStop:
-    def __init__(self, patience):
-        self.patience = patience
+    def __init__(self, max_patience):
+        self.patience = max_patience
         self.best_vals = None
         self.best_trial = None
+        self.last_step = 0
 
     def __call__(self, study, trial):
         if study.best_trial.number == trial.number:
             self.best_vals = trial.value
             self.best_trial = trial.number
+
+        current_step = trial.number // 500
+        if current_step > self.last_step:
+            self.patience *= 0.4 
+            self.last_step = current_step
 
         if self.best_trial is not None:
             if trial.number - self.best_trial >= self.patience:
@@ -251,7 +257,7 @@ class TrainTA:
             
 
         study = optuna.create_study(direction=self.opt_dir)
-        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(patience=700)])
+        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(max_patience=500)])
 
         return study.best_params
     
