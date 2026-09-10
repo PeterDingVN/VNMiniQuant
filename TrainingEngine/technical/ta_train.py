@@ -257,7 +257,7 @@ class TrainTA:
             
 
         study = optuna.create_study(direction=self.opt_dir)
-        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(max_patience=500)])
+        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(max_patience=700)])
 
         return study.best_params
     
