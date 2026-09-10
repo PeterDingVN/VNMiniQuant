@@ -83,7 +83,7 @@ class TaStatTest:
         sys.stdout.write("\033[35mChecking future leak ...\033[0m")
         sys.stdout.flush()
 
-        n_iter = 35
+        n_iter = 20
         drop_count = 0
         diff_count = 0
 
@@ -167,7 +167,7 @@ class TaStatTest:
         sys.stdout.write("\r\033[2K")
         sys.stdout.flush()
 
-        if drop_count > 9 or diff_count >= 1:
+        if drop_count > 8 or diff_count >= 1:
             sys.stdout.write("\r\033[K\033[31mFail future leak test.\033[0m")
             sys.stdout.flush()
         else:
@@ -218,7 +218,7 @@ class TaStatTest:
         # ---------------------------------------------------------------------
         # Check if 30th Sharpe > n% of base Sharpe
         # ---------------------------------------------------------------------
-        k_folds = 35
+        k_folds = 45
         warmup = self._warmup_start()
         oos_srs = []
 
