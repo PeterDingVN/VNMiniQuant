@@ -45,7 +45,7 @@ class CorrTest:
 
                 if not all(col in df.columns for col in ['datetime', 'position', 'close']):
                     alpha_name = os.path.splitext(os.path.basename(file))[0]
-                    print(f"Alpha {alpha_name} must have all: 'datetime', 'position', 'close'")
+                    print(f"\033[93m[WARNING] Alpha {alpha_name} must have all: 'datetime', 'position', 'close'\033[0m")
                     results.append({"Alpha": alpha_name,
                                     "Pearson(%)": -999,
                                     "Spearman(%)": -999
