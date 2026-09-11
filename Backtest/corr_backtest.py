@@ -44,7 +44,14 @@ class CorrTest:
                 df.columns = [c.lower() for c in df.columns]
 
                 if not all(col in df.columns for col in ['datetime', 'position', 'close']):
-                    raise ValueError(f"Data {file} must have all: datetime, position, close")
+                    alpha_name = os.path.splitext(os.path.basename(file))[0]
+                    print(f"Alpha {alpha_name} must have all: 'datetime', 'position', 'close'")
+                    results.append({"Alpha": alpha_name,
+                                    "Pearson(%)": -999,
+                                    "Spearman(%)": -999
+                                    })
+                    continue
+
                 df["datetime"] = pd.to_datetime(df["datetime"])
 
                 if 'gain_after_fee' not in df.columns:
