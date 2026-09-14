@@ -147,17 +147,25 @@ class VnStockRule:
         data['position'] = out
         return data
 
-# VN Future
+# VN Futures
 @dataclass
 class VnFutureRule:
+    pos_col: str = "position"
+    dt_col: str = "datetime"
+    rollover_fee_pts: float = Fee.fee['vn_future']
+
     def apply(self, data: pd.DataFrame) -> pd.DataFrame:
-        dt = data["datetime"].dt
-        mask = (
-            (dt.weekday == 3) &
-            (dt.day >= 15) & (dt.day <= 21) &
-            (dt.hour == 14) & (dt.minute >= 45)
-        )
-        data.loc[mask, "position"] = 0
+        data = data.copy()
+        dts = pd.to_datetime(data[self.dt_col])
+        
+        dates = dts.dt.date
+        is_third_thursday = (dts.dt.weekday == 3) & (dts.dt.day >= 15) & (dts.dt.day <= 21)
+        
+        # Extract the exact DataFrame index for the LAST bar of each 3rd Thursday
+        expiry_subset = data[is_third_thursday]
+        last_expiry_indices = expiry_subset.groupby(dates[is_third_thursday]).tail(1).index
+        data["rollover_fee"] = 0.0
+        data.loc[last_expiry_indices, "rollover_fee"] = self.rollover_fee_pts * 2
 
         return data
 
@@ -398,11 +406,10 @@ class FinanceMetrics:
 
         # Fee
         if self.fee_type in ['vn_stock', 'vn_stock_no_adv', 'crypto']:
-            # Fee in pct
             one_way_fee = Fee.fee[self.fee_type] * df['close']
         else:
-            # fee in abs
-            one_way_fee = Fee.fee[self.fee_type]
+            rollover_fee = df['rollover_fee']
+            one_way_fee = Fee.fee[self.fee_type] + rollover_fee
 
         df['fee'] = one_way_fee * df['pos_change'].abs()
 
@@ -714,7 +721,7 @@ Comp. Annual Return: {return_3[2]:.2f}%
 
 # python -m Backtest.finance_backtest
 if __name__ == "__main__":
-    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\DAT264.csv')
+    df = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\MFI_Thres.csv')
     rep = FinanceBacktest(fee_type='vn_future', 
                     currency='usd', 
                     initial_capital=10_000, 
