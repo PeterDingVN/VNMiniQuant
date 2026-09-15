@@ -28,7 +28,11 @@ RESET = "\033[0m"
 DATE_COLS = ['datetime', 'date', 'time', 'timestamp']
 
 
-# =========== Helper class ===============
+# =========== Error class =============
+class InputError(Exception):
+    pass
+
+# =========== Info class ===============
 @dataclass
 class ResolutionMap:
     available_timeframe = {
@@ -76,6 +80,7 @@ class ExchangePlatform:
         }
     
 
+# ========== Session API class =========
 @dataclass
 class Headers:
     headers = {
@@ -108,11 +113,6 @@ class Headers:
             'sec-ch-ua-platform': '"Windows"'
             }
 
-
-class InputError(Exception):
-    pass
-
-
 class RobustSession:
     """
         Auto retry when error 429, 500, 502, 503, 504 is thrown
@@ -138,6 +138,9 @@ class RobustSession:
             "Accept-Language": "en-US,en;q=0.9",
         })
         return session
+
+
+# ========== Helper classes ============
 
 
 
@@ -418,7 +421,7 @@ class _SingleScraper:
     # Provider‑specific max candles per request
     MAX_LIMITS = {
         "crypto": 1000,
-        "trading_view": 5000
+        "trading_view": 1000
     }
 
     def __init__(self, config: Dict[str, Any]):
