@@ -38,9 +38,6 @@ class TvSocket:
 
         if self.token is None:
             self.token = "unauthorized_user_token"
-            logger.warning(
-                f"{YELLOW}[WARNING] You are in Trading View Guest Mode, data might be limited{RESET}"
-            )
 
         self.ws = None
         self.session = self.__generate_session()
