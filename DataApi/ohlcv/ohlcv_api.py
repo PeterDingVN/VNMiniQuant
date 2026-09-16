@@ -7,15 +7,18 @@ from dataclasses import dataclass
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
+import numpy as np
 from .tradingview_socket import TvSocket
 import math
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 YELLOW = "\033[93m"
@@ -141,7 +144,363 @@ class RobustSession:
 
 
 # ========== Helper classes ============
+class CachingData:
 
+    @staticmethod
+    def _get_cache_path(symbol: str, timeframe: str, cache_dir: str):
+        base_symbol = symbol
+        tf = timeframe
+
+        # Std symbol name
+        suf = base_symbol.split(":", 1)[0]
+        if suf in ['VN', 'CP', 'C&M', 'VNF']:
+            base_symbol = base_symbol.split(":", 1)[1]
+
+        # Std symbol tf
+        if isinstance(tf, str):
+            if base_symbol.endswith(f"_{tf}"):
+                base_symbol = base_symbol[:-len(f"_{tf}")]
+            elif tf.startswith(f"{base_symbol}_"):
+                tf = tf[len(base_symbol) + 1:]
+        else:
+            return None
+
+        safe_symbol = base_symbol.replace("/", "_").replace(":", "_")
+
+        return os.path.join(cache_dir, f"{safe_symbol}_{tf}.csv")
+
+    @staticmethod
+    def _load_from_cache(symbol: str, timeframe: str, cache_dir: str) -> Optional[pd.DataFrame]:
+        cache_path = CachingData._get_cache_path(symbol, timeframe, cache_dir)
+        if os.path.exists(cache_path):
+            try:
+                df = pd.read_csv(cache_path)
+                if df.empty:
+                    raise ValueError(f"Dataframe of {symbol}_{timeframe} is empty")
+                if "datetime" in df.columns:
+                    df["datetime"] = pd.to_datetime(df["datetime"])
+                return df
+            except Exception:
+                return None
+        
+    @staticmethod
+    def _save_to_cache(symbol: str, df: pd.DataFrame, timeframe: str, cache_dir: str) -> None:
+        cache_path = CachingData._get_cache_path(symbol, timeframe, cache_dir)
+        df.to_csv(cache_path, index=False)
+
+
+class CleanData:
+
+    @staticmethod
+    def _standardize_dataframe(df: pd.DataFrame, provider: str) -> pd.DataFrame:
+        required = {"datetime", "open", "high", "low", "close", "volume"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns after fetch: {missing}")
+        
+        df["open"] = df["open"].astype(float)
+        df["high"] = df["high"].astype(float)
+        df["low"] = df["low"].astype(float)
+        df["close"] = df["close"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+
+        platform = provider.lower()
+        if platform in ["crypto", "tv_vnstock", "tv_vnfuture", "tv_commodity"]:
+            df["datetime"] = (pd.to_datetime(df["datetime"])
+                                .dt.tz_localize(None)
+                                + pd.Timedelta(hours=7))
+
+        elif platform in ['tv_usstock', 'tv_usfuture']:     
+            df["datetime"] = (pd.to_datetime(df["datetime"], utc=True)
+                            .dt.tz_convert("America/New_York")
+                            .dt.tz_localize(None))
+
+        return df
+
+    @staticmethod
+    def _resample_dataframe(df: pd.DataFrame, target_interval: str) -> pd.DataFrame:
+        target = target_interval
+        value, unit = int(target[:-1]), target[-1].lower()
+        if unit == 'm':
+            unit = 'min'
+
+        rule = f"{value}{unit}"
+        df = df.set_index("datetime")
+        df = df.sort_index()
+        resampled = df.resample(rule).agg({
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum"
+        }).dropna()
+
+        resampled = resampled.reset_index()
+        return resampled
+    
+
+class GeneralUtils:
+
+    @staticmethod
+    def _compute_base_interval(timeframe: str, platform: str) -> Tuple[str, bool]:
+            val = int(timeframe[:-1])
+            unit = timeframe[-1].lower()
+    
+            if unit == "m":
+                target = val
+            elif unit == "h":
+                target = val * 60
+            elif unit == "d":
+                target = val * 1440
+    
+            candidates = ResolutionMap.transformed_timeframe[platform]
+    
+            best_tf = None
+            best_bars = float("inf")
+    
+            for base_minutes, tf in candidates:
+    
+                if target % base_minutes != 0:
+                    continue
+    
+                bars = target // base_minutes
+    
+                if bars < best_bars:
+                    best_bars = bars
+                    best_tf = tf
+    
+            # fallback: smallest available candle
+            if best_tf is None:
+                best_tf = candidates[0][1]
+    
+            is_resampled = (best_tf != timeframe)
+    
+            return best_tf, is_resampled
+
+
+    @staticmethod
+    def _validate_timeframe(timeframe: str) -> None:
+        timeframe = timeframe.lower()
+        pattern = r"^\d+[dmh]$"
+        if not isinstance(timeframe, str) or not re.match(pattern, timeframe):
+            raise InputError(
+                f"Invalid timeframe format: '{timeframe}'. Expected pattern: "
+                f"positive integer followed by 'd' (days), 'm' (minutes), or 'h' (hours). "
+                f"Examples: '1d', '15m', '4h'."
+                f"For monthly or yearly data, please call 1d and resample to 1mon, 1y."
+            )
+
+    @staticmethod
+    def _route_symbol(symbol: str) -> Tuple[str, str]:
+        symbol_upper = symbol.upper().strip()
+
+        # Vietnam stock 
+        if symbol_upper.startswith("VN:"): 
+            return "tv_vnstock", symbol_upper[3:]
+        elif len(symbol_upper)==3:
+            return "tv_vnstock", symbol_upper
+        elif symbol_upper in ['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']:
+            return 'tv_vnstock', symbol_upper
+        
+        # Vietnam futures
+        if symbol_upper in ['VN30F1M', 'VN30F2M']:
+            return "tv_vnfuture", symbol_upper
+        elif symbol_upper.startswith("VNF:"):
+            if symbol_upper[4:] not in ['VN30F1M', 'VN30F2M']:
+                return (None, None)
+            return "tv_vnfuture", symbol_upper[4:]
+        
+
+        # US stock
+        if symbol_upper.startswith("US:"): 
+            return "tv_usstock", symbol_upper[3:]
+
+        # US futures
+        if symbol_upper.startswith("USF:"): 
+            return "tv_usfuture", symbol_upper[4:]
+        
+
+        # Commodities and Macro
+        if symbol_upper.startswith("C&M:"):
+            return "tv_commodity", symbol_upper[4:]
+        
+        
+        # Crypto - Binance
+        crypto_suffixes = ("USDT", "USDC", "BUSD", "BTC", "ETH")
+        if symbol_upper.startswith("CP:"):  
+            return "crypto", symbol_upper[3:]
+        elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
+            return "crypto", symbol_upper
+
+        return (None, None)
+
+
+    @staticmethod
+    def _to_unix_seconds(time_start: str, time_end: str) -> Tuple[int, int]:
+
+        try:
+            vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+            dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+            dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
+
+        except ValueError as e:
+            raise InputError(
+                f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
+
+        return int(dt_start.timestamp()), int(dt_end.timestamp())
+
+
+
+
+
+# ============== Component 0: DATA ADJUSTING ENGINE =================
+# class AdjustData:
+
+#     def __init__(self, config: dict):
+
+#         self._ohlcv = ["open", "high", "low", "close"]
+#         self.config = config
+
+#     def adjust(data: pd.DataFrame, config: Dict[Any]) -> pd.DataFrame:
+
+#         symbol = str(self.symbol).upper()
+#         if symbol == "VN30F1M":
+#             return self._vnfuture(data, config)
+
+#         return data
+
+#     def _adjust_vnfuture(self, df: pd.DataFrame) -> pd.DataFrame:
+
+#         # for col in self._OHLC:
+#         #     raw_col = f"{col}_raw"
+#         #     df[raw_col] = df[col]
+#         #     df[col] = df[raw_col] # --->>> ???
+
+#         df["_trade_date"] = df["datetime"].dt.normalize()
+
+
+
+#         # ============================================================
+#         # 3. FETCH VN30F2M ==> Copy logic of _load_single_symbol
+#         # ============================================================
+#         # fetch_config = self.config.copy()
+#         # fetch_config["symbol"] = "VN30F2M"
+#         # fetch_config["original_symbol"] = "VN30F2M"
+#         # fetch_config["target_interval"] = "1d"
+
+
+#         # Load cache ??? Append??
+
+#         # scraper = _SingleScraper(fetch_config) -> _fetch_vietstock truc tiep thay vi .fetch() -> tu standardize()
+#         # vnf2m_data = scraper.fetch()
+
+#         # if not isinstance(f2m, pd.DataFrame) or f2m.empty:
+#         #     return df.drop(columns="_trade_date")
+
+#         # f2m = f2m.copy()
+#         # f2m.columns = [str(c).lower() for c in f2m.columns]
+#         # f2m["datetime"] = pd.to_datetime(f2m["datetime"])
+
+
+
+
+#         # ============================================================
+#         # 4. THIRD THURSDAYS ONLY
+#         # ============================================================
+
+#         dt = f2m["datetime"]
+
+#         is_third_thursday = (
+#             (dt.dt.weekday == 3)
+#             & (dt.dt.day >= 15)
+#             & (dt.dt.day <= 21)
+#         )
+
+#         f2m = f2m.loc[is_third_thursday].copy()
+
+#         if f2m.empty:
+#             return df.drop(columns="_trade_date")
+
+#         f2m["_trade_date"] = f2m["datetime"].dt.normalize()
+
+#         f2m = (
+#             f2m
+#             .drop_duplicates("_trade_date", keep="last")
+#             [[
+#                 "_trade_date",
+#                 "close",
+#             ]]
+#             .rename(columns={
+#                 "close": "close_f2m",
+#             })
+#         )
+
+#         # ============================================================
+#         # 5. MERGE F2M BY DATE
+#         # ============================================================
+
+#         df = df.merge(
+#             f2m,
+#             how="left",
+#             on="_trade_date",
+#             sort=False,
+#         )
+
+#         is_last_bar = (
+#             df["_trade_date"] != df["_trade_date"].shift(-1)
+#         )
+
+#         # ============================================================
+#         # 7. ROLL GAP
+#         # ============================================================
+
+#         df["_gap"] = np.nan
+
+#         roll_mask = (
+#             is_last_bar
+#             & df["close_f2m"].notna()
+#             & df["close_raw"].notna()
+#         )
+
+#         df.loc[roll_mask, "_gap"] = (
+#             df.loc[roll_mask, "close_f2m"]
+#             - df.loc[roll_mask, "close_raw"]
+#         )
+
+#         # ============================================================
+#         # 8. REBUILD THE ENTIRE ADJUSTMENT FROM SCRATCH
+#         # ============================================================
+
+#         gaps = df["_gap"].fillna(0.0)
+
+#         cumulative_future_gap = (
+#             gaps.iloc[::-1]
+#             .cumsum()
+#             .iloc[::-1]
+#             - gaps
+#         )
+
+#         cumulative_future_gap = cumulative_future_gap.fillna(0.0)
+
+#         # ============================================================
+#         # 9. APPLY TO RAW OHLC
+#         # ============================================================
+
+#         for col in self._OHLC:
+#             df[col] = (
+#                 df[f"{col}_raw"]
+#                 + cumulative_future_gap
+#             )
+
+
+#         df = df.drop(columns=["_trade_date","close_f2m","_gap"], errors="ignore")
+#         return df.sort_values("datetime").reset_index(drop=True)
+        
+
+    
+
+#     def _vnstock(self, data: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+#         pass
 
 
 
@@ -175,7 +534,6 @@ class _ValidateInputParams:
 
         
         # Std username and password for TradingView account
-        
         if not (isinstance(username, str) and isinstance(password, str)):
             raise InputError("username and password must be in str format")
         if not all([username, password]):
@@ -235,11 +593,11 @@ class _ValidateInputParams:
         else:
             raise InputError('Must provide only 1 or same number of timeframe as number of symbol')
         for tf in self.timeframes:
-            self._validate_timeframe(tf)
+            GeneralUtils._validate_timeframe(tf)
         
 
         # Compute interval based on available timeframe in each platform
-        results = [self._route_symbol(sym) for sym in self.symbol]
+        results = [GeneralUtils._route_symbol(sym) for sym in self.symbol]
         for idx, (provider, _) in enumerate(results):
             if provider == 'vietstock' and self.timeframes[idx][-1] != 'd' and self.time_end < '2025-06-27':
                 raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
@@ -254,7 +612,7 @@ class _ValidateInputParams:
                 platform = 'binance'
             else:
                 platform = 'trading_view'
-            base, requires = self._compute_base_interval(tf, platform=platform)
+            base, requires = GeneralUtils._compute_base_interval(tf, platform=platform)
             self.base_intervals.append(base)
             self.requires_resampling_flags.append(requires)
 
@@ -275,14 +633,14 @@ class _ValidateInputParams:
                     self.requires_resampling_flags, 
                     self.timeframes, self.time_starts, self.time_ends):
             
-            provider, clean_symbol = self._route_symbol(sym)
+            provider, clean_symbol = GeneralUtils._route_symbol(sym)
             
             # Dynamic Vietstock check using the current item's end date
             if provider == 'vietstock' and target_interval[-1] != 'd' and end_t < '2025-06-27':
                 raise InputError('Vietstock do not provide under-1d stock data for date before 2025-06-27')
             
             # Convert specific list-unpacked timestamps to seconds and milliseconds precision
-            start_ts_sec, end_ts_sec = _ValidateInputParams._to_unix_seconds(start_t, end_t)
+            start_ts_sec, end_ts_sec = GeneralUtils._to_unix_seconds(start_t, end_t)
             start_ts_ms = start_ts_sec * 1000
             end_ts_ms = end_ts_sec * 1000
 
@@ -302,114 +660,6 @@ class _ValidateInputParams:
                 "start_ts_ms": start_ts_ms,
                 "end_ts_ms": end_ts_ms
             })
-
-
-    def _compute_base_interval(self, timeframe: str, platform: str) -> Tuple[str, bool]:
-        val = int(timeframe[:-1])
-        unit = timeframe[-1].lower()
-
-        if unit == "m":
-            target = val
-        elif unit == "h":
-            target = val * 60
-        elif unit == "d":
-            target = val * 1440
-
-        candidates = ResolutionMap.transformed_timeframe[platform]
-
-        best_tf = None
-        best_bars = float("inf")
-
-        for base_minutes, tf in candidates:
-
-            if target % base_minutes != 0:
-                continue
-
-            bars = target // base_minutes
-
-            if bars < best_bars:
-                best_bars = bars
-                best_tf = tf
-
-        # fallback: smallest available candle
-        if best_tf is None:
-            best_tf = candidates[0][1]
-
-        is_resampled = (best_tf != timeframe)
-
-        return best_tf, is_resampled
-
-
-    def _validate_timeframe(self, timeframe: str) -> None:
-        timeframe = timeframe.lower()
-        pattern = r"^\d+[dmh]$"
-        if not isinstance(timeframe, str) or not re.match(pattern, timeframe):
-            raise InputError(
-                f"Invalid timeframe format: '{timeframe}'. Expected pattern: "
-                f"positive integer followed by 'd' (days), 'm' (minutes), or 'h' (hours). "
-                f"Examples: '1d', '15m', '4h'."
-                f"For monthly or yearly data, please call 1d and resample to 1mon, 1y."
-            )
-
-    def _route_symbol(self, symbol: str) -> Tuple[str, str]:
-        symbol_upper = symbol.upper().strip()
-
-        # Vietnam stock 
-        if symbol_upper.startswith("VN:"): 
-            return "tv_vnstock", symbol_upper[3:]
-        elif len(symbol_upper)==3:
-            return "tv_vnstock", symbol_upper
-        elif symbol_upper in ['VNINDEX', 'VN30', 'HNX30', 'HNXINDEX', 'UPCOMINDEX']:
-            return 'tv_vnstock', symbol_upper
-        
-        # Vietnam futures
-        if symbol_upper in ['VN30F1M', 'VN30F2M']:
-            return "tv_vnfuture", symbol_upper
-        elif symbol_upper.startswith("VNF:"):
-            if symbol_upper[4:] not in ['VN30F1M', 'VN30F2M']:
-                raise InputError('Available Vietnam future contract: VN30F1M, VN30F2M')
-            return "tv_vnfuture", symbol_upper[4:]
-        
-
-        # US stock
-        if symbol_upper.startswith("US:"): 
-            return "tv_usstock", symbol_upper[3:]
-
-        # US futures
-        if symbol_upper.startswith("USF:"): 
-            return "tv_usfuture", symbol_upper[4:]
-        
-
-        # Commodities and Macro
-        if symbol_upper.startswith("C&M:"):
-            return "tv_commodity", symbol_upper[4:]
-        
-        
-        # Crypto - Binance
-        crypto_suffixes = ("USDT", "USDC", "BUSD", "BTC", "ETH")
-        if symbol_upper.startswith("CP:"):  
-            return "crypto", symbol_upper[3:]
-        elif any(symbol_upper.endswith(suf) for suf in crypto_suffixes):
-            return "crypto", symbol_upper
-
-        return (None, None)
-
-
-
-    @staticmethod
-    def _to_unix_seconds(time_start: str, time_end: str) -> Tuple[int, int]:
-
-        try:
-            vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-            dt_start = datetime.strptime(time_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
-            dt_end = datetime.strptime(time_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=vn_tz)
-
-        except ValueError as e:
-            raise InputError(
-                f"Timestamp format error: {e}. Expected format: 'YYYY-MM-DD HH:MM:SS'")
-
-        return int(dt_start.timestamp()), int(dt_end.timestamp())
-
 
     
 
@@ -450,9 +700,9 @@ class _SingleScraper:
                 raise InputError('Wrong ticker name or Unavailable data within defined range.')
 
 
-            df = self._standardize_dataframe(df)
+            df = CleanData._standardize_dataframe(df, provider=self.config['provider'])
             if self.config["requires_resampling"]:
-                df = self._resample_dataframe(df)
+                df = CleanData._resample_dataframe(df, target_interval=self.config['target_interval'])
 
             return df
 
@@ -525,9 +775,7 @@ class _SingleScraper:
         df = pd.DataFrame(all_candles)
         if not df.empty:
             df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
-
-            df = (
-                df
+            df = (df
                 .drop_duplicates(subset="datetime")
                 .sort_values("datetime")
                 .reset_index(drop=True)
@@ -803,55 +1051,7 @@ class _SingleScraper:
                 .reset_index(drop=True))
             
         return df
-    
-
-    
-    # =================  Standardisation & resampling  =========================
-
-    def _standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        required = {"datetime", "open", "high", "low", "close", "volume"}
-        missing = required - set(df.columns)
-        if missing:
-            raise ValueError(f"Missing required columns after fetch: {missing}")
-        
-        df["open"] = df["open"].astype(float)
-        df["high"] = df["high"].astype(float)
-        df["low"] = df["low"].astype(float)
-        df["close"] = df["close"].astype(float)
-        df["volume"] = df["volume"].astype(float)
-
-        platform = self.config["provider"].lower()
-        if platform in ["crypto", "tv_vnstock", "tv_vnfuture", "tv_commodity"]:
-            df["datetime"] = (pd.to_datetime(df["datetime"])
-                              .dt.tz_localize(None)
-                              + pd.Timedelta(hours=7))
-
-        elif platform in ['tv_usstock', 'tv_usfuture']:     
-            df["datetime"] = (pd.to_datetime(df["datetime"], utc=True)
-                            .dt.tz_convert("America/New_York")
-                            .dt.tz_localize(None))
-
-        return df
-
-    def _resample_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        target = self.config["target_interval"]
-        value, unit = int(target[:-1]), target[-1].lower()
-        if unit == 'm':
-            unit = 'min'
-
-        rule = f"{value}{unit}"
-        df = df.set_index("datetime")
-        df = df.sort_index()
-        resampled = df.resample(rule).agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum"
-        }).dropna()
-
-        resampled = resampled.reset_index()
-        return resampled
+  
 
 
 
@@ -914,73 +1114,37 @@ class OhlcvGenerator:
                          os.path.join(os.path.dirname(os.path.abspath(__file__)), "_research_data")
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _get_cache_path(self, symbol: str, timeframe: Optional[str] = None) -> str:
-        base_symbol = symbol
-        tf = timeframe
-
-        suf = base_symbol.split(":", 1)[0]
-        if suf in ['VN', 'CP', 'C&M', 'VNF']:
-            base_symbol = base_symbol.split(":", 1)[1]
-
-        if isinstance(tf, str):
-            if base_symbol.endswith(f"_{tf}"):
-                base_symbol = base_symbol[:-len(f"_{tf}")]
-            elif tf.startswith(f"{base_symbol}_"):
-                tf = tf[len(base_symbol) + 1:]
-
-        safe_symbol = base_symbol.replace("/", "_").replace(":", "_")
-
-        if tf is None:
-            for cfg in self.symbol_configs:
-                if cfg.get("original_symbol_with_time") == symbol:
-                    tf = cfg.get("target_interval")
-                    break
-            if tf is None:
-                tf = self.timeframe if isinstance(self.timeframe, str) else (self.timeframe[0] if self.timeframe else "")
-        return os.path.join(self.cache_dir, f"{safe_symbol}_{tf}.csv")
-
-
-    def _load_from_cache(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
-        cache_path = self._get_cache_path(symbol, timeframe)
-        if os.path.exists(cache_path):
-            try:
-                df = pd.read_csv(cache_path)
-                if df.empty:
-                    raise ValueError(f"Dataframe of {symbol}_{timeframe} is empty")
-                if "datetime" in df.columns:
-                    df["datetime"] = pd.to_datetime(df["datetime"])
-                return df
-            except Exception as e:
-                print(f"[CACHE] Warning: could not read {cache_path}: {e}")
-      
-
-    def _save_to_cache(self, symbol: str, df: pd.DataFrame, timeframe: str) -> None:
-        cache_path = self._get_cache_path(symbol, timeframe)
-        df.to_csv(cache_path, index=False)
-
 
     def _load_single_symbol(self, config: Dict[str, Any]) -> Tuple[str, Optional[pd.DataFrame], Optional[Tuple[str, str]]]:
         symbol = config["original_symbol"]
         tf = config['target_interval']
-
         req_start = pd.to_datetime(config["time_start"])
         req_end = pd.to_datetime(config["time_end"])
 
-        cached_df = self._load_from_cache(symbol, tf)
-
+        # 1. Check if data exist -> if enough -> take from cache
+        cached_df = CachingData._load_from_cache(symbol, tf, self.cache_dir)
         if cached_df is not None and not cached_df.empty:
+
+            # Ensure datetime column
+            try:
+                keywords = ("t", "time", "timestamp", "timestamps", "date", "dates", "datetime", "datetimes")
+                for col in cached_df.columns:
+                    if any(k in col.lower() for k in keywords):
+                        cached_df = cached_df.rename(columns={col: 'datetime'})
+                        cached_df['datetime'] = pd.to_datetime(cached_df['datetime'])
+
+            except Exception: # Do not switch to scrape mode here -> retain integrity
+                return (symbol, None,
+                        ("ValueError", f"{symbol} misses 'datetime' column"))
+
             if not self.update_data:
                 cached_df = (cached_df
-                                .drop_duplicates(subset=cached_df.columns)
+                                .drop_duplicates(subset="datetime")
                                 .dropna(how='all')
+                                .rename(columns=str.lower)
                             )
-                cached_df.columns = [c.lower() for c in cached_df.columns]
                 
-                existing_date_cols = next((col for col in DATE_COLS if col in cached_df.columns), None)
-                if existing_date_cols==None:
-                    raise ValueError("Cached data has no datetime column, please add one")
-                
-                cached_df[existing_date_cols] = pd.to_datetime(cached_df[existing_date_cols])
+                cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
 
                 print(f"{GREEN}Loaded {symbol}_{tf}{RESET}")
                 return (symbol, cached_df, None)
@@ -997,35 +1161,47 @@ class OhlcvGenerator:
                 print(f"{GREEN}Loaded {symbol}_{tf}{RESET}")
                 return (symbol, cached_df, None)
 
-        # Modify config for scraping
+
+        # 2. If not found in cache or Datetime is missing -> fetch new
+
+        # New cfg 
         fetch_config = config.copy()
         fetch_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
         fetch_config["time_end"] = req_end.strftime("%Y-%m-%d %H:%M:%S")
-        fetch_config["start_ts_sec"], fetch_config["end_ts_sec"] = _ValidateInputParams._to_unix_seconds(str(req_start), str(req_end))
+        fetch_config["start_ts_sec"], fetch_config["end_ts_sec"] = GeneralUtils._to_unix_seconds(str(req_start), str(req_end))
         fetch_config["start_ts_ms"] = fetch_config["start_ts_sec"] * 1000
         fetch_config["end_ts_ms"] = fetch_config["end_ts_sec"] * 1000
 
-
-        scraper = _SingleScraper(fetch_config)
+        # Scrape raw
+        scraper = _SingleScraper(fetch_config)  # ---> Symbol used to fetch
         result = scraper.fetch()
 
-        if isinstance(result, pd.DataFrame):
+        if isinstance(result, pd.DataFrame) and not result.empty:
+
             result["datetime"] = pd.to_datetime(result["datetime"])
+
             if cached_df is not None and not cached_df.empty:
+                # Append raw
                 result = (pd.concat([cached_df, result], ignore_index=True)
-                            .drop_duplicates(subset=cached_df.columns)
+                            .drop_duplicates(subset='datetime', keep='first')
                             .dropna(how='all')
                             .reset_index(drop=True)
                             .sort_values(by='datetime')
                         )
             else:
+                # No cache -> raw data
                 result = (result
-                            .drop_duplicates(subset=result.columns)
+                            .drop_duplicates(subset='datetime')
                             .dropna(how='all')
                             .reset_index(drop=True)
                             .sort_values(by='datetime')
                         )
-            self._save_to_cache(symbol, result, tf)
+
+            
+            # Save adjusted data to cache
+            # CachingData._save_to_cache(symbol, result, tf, self.cache_dir)  # ---> Symbol used to save file to correct locations 
+            # --> Only save after adjust
+            
             print(f"{GREEN}Scraped and Loaded {symbol}_{tf}{RESET}")
             return (symbol, result, None)
         
@@ -1044,10 +1220,17 @@ class OhlcvGenerator:
         successful_symbol = []
         failed_symbol = []
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        dependency_futures = {}
+        dependency_lock = threading.Lock()
+        dependency_workers = max(1, min(self.max_workers, 2))
+
+        with (ThreadPoolExecutor(max_workers=self.max_workers) as executor,
+              ThreadPoolExecutor(max_workers=dependency_workers) as dependency_executor):
+
+            # PHASE 1: Scrape and Load data
             future_to_cfg = {executor.submit(self._load_single_symbol, cfg): cfg
-                            for cfg in self.symbol_configs
-                                }
+                            for cfg in self.symbol_configs}
+            print(self.symbol_configs)
 
             for future in as_completed(future_to_cfg):
                 cfg = future_to_cfg[future]
@@ -1065,7 +1248,6 @@ class OhlcvGenerator:
                     results[f'{sym}_{tf}'] = df[df['datetime'].between(time_start, time_end)]
                     successful_symbol.append(sym)
 
-        # Final console log
         if failed_symbol:
             print(' ')
             print(f"{RED}Failure reason:{RESET}")
@@ -1077,139 +1259,148 @@ class OhlcvGenerator:
 
 
 # ============ Component 4: LIVE DATA SCRAPER ===============
-class LiveOhlcvGenerator(OhlcvGenerator):
-    def __init__(self, data_cfg: Dict[str, Any], max_workers: int = 5):
-        self.data_cfg = data_cfg
-        self.live_cache_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "_live_data"
-        )
-        os.makedirs(self.live_cache_dir, exist_ok=True)
+"""
+- Research co mot so bottle neck nhu:
+    + Ko goi duoc Concurrent Per Symbol
+    + Exchange fallback dung for loop
+    + Call Data VNF2M trong adjust data VN30F1M -> block path cua VN30F1M --> Sol: CHi adjjst cuoi phien, trong phien KO ADJUst
 
-        data_items = data_cfg.get("data")
-        symbols = [item["symbol"] for item in data_items]
+==> Deploy Live can GIAM BOT TINH NANG, tap trung vao toc do
 
-        now = pd.Timestamp.now()
-        start = now.normalize() - pd.DateOffset(years=1)
-        end = now
+"""
+# class LiveOhlcvGenerator(OhlcvGenerator):
+#     def __init__(self, data_cfg: Dict[str, Any], max_workers: int = 5):
+#         self.data_cfg = data_cfg
+#         self.live_cache_dir = os.path.join(
+#             os.path.dirname(os.path.abspath(__file__)),
+#             "_live_data"
+#         )
+#         os.makedirs(self.live_cache_dir, exist_ok=True)
 
-        super().__init__(
-            symbol=symbols,
-            timeframe=["1m"] * len(symbols),
-            time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
-            time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
-            update_data=True,
-            username=data_cfg.get("tv_username", "None"),
-            password=data_cfg.get("tv_password", "None"),
-            max_workers=max_workers,
-            cache_dir=self.live_cache_dir
-        )
+#         data_items = data_cfg.get("data")
+#         symbols = [item["symbol"] for item in data_items]
 
-        self._ensure_live_cache()
+#         now = pd.Timestamp.now()
+#         start = now.normalize() - pd.DateOffset(years=1)
+#         end = now
 
-    def _ensure_live_cache(self) -> None:
-        missing_symbols = []
+#         super().__init__(
+#             symbol=symbols,
+#             timeframe=["1m"] * len(symbols),
+#             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
+#             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
+#             update_data=True,
+#             username=data_cfg.get("tv_username", "None"),
+#             password=data_cfg.get("tv_password", "None"),
+#             max_workers=max_workers,
+#             cache_dir=self.live_cache_dir
+#         )
 
-        for cfg in self.symbol_configs:
-            cache_path = self._get_cache_path(cfg["original_symbol"], "1m")
-            if not os.path.exists(cache_path):
-                missing_symbols.append(cfg["original_symbol"])
+#         self._ensure_live_cache()
 
-        if not missing_symbols:
-            return
+#     def _ensure_live_cache(self) -> None:
+#         missing_symbols = []
 
-        now = pd.Timestamp.now()
-        start = now.normalize() - pd.DateOffset(years=1)
-        end = now
+#         for cfg in self.symbol_configs:
+#             cache_path = self._get_cache_path(cfg["original_symbol"], "1m")
+#             if not os.path.exists(cache_path):
+#                 missing_symbols.append(cfg["original_symbol"])
 
-        generator = OhlcvGenerator(
-            symbol=missing_symbols,
-            timeframe="1m" if len(missing_symbols) == 1 else ["1m"] * len(missing_symbols),
-            time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
-            time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
-            update_data=True,
-            username=self.data_cfg.get("tv_username", "None"),
-            password=self.data_cfg.get("tv_password", "None"),
-            max_workers=self.max_workers,
-            cache_dir=self.live_cache_dir
-        )
-        generator.generate()
+#         if not missing_symbols:
+#             return
 
-    def _is_vietnam_live_provider(self, provider: str) -> bool:
-        return provider in {"tv_vnstock", "tv_vnfuture"}
+#         now = pd.Timestamp.now()
+#         start = now.normalize() - pd.DateOffset(years=1)
+#         end = now
 
-    def _prepare_live_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+#         generator = OhlcvGenerator(
+#             symbol=missing_symbols,
+#             timeframe="1m" if len(missing_symbols) == 1 else ["1m"] * len(missing_symbols),
+#             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
+#             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
+#             update_data=True,
+#             username=self.data_cfg.get("tv_username", "None"),
+#             password=self.data_cfg.get("tv_password", "None"),
+#             max_workers=self.max_workers,
+#             cache_dir=self.live_cache_dir
+#         )
+#         generator.generate()
 
-        """
-        Live config da:
-        - copy config cua user -> ko anh huong den config viet gi
-        - live_data tach biet research_data -> good
+#     def _is_vietnam_live_provider(self, provider: str) -> bool:
+#         return provider in {"tv_vnstock", "tv_vnfuture"}
+
+#     def _prepare_live_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+
+#         """
+#         Live config da:
+#         - copy config cua user -> ko anh huong den config viet gi
+#         - live_data tach biet research_data -> good
         
 
-        Issue:
-        - code fetch_vps -> Done
-        - Adjust data versus Raw data -> 
-        - Khai bao so bars de scrape chuan data hon -> Done
-        - Check self.appluy_rate_delay + tim cach balance speed va avoid_block_api -> Done
-        - LiveOhlcv KO dc raise errorn -> Done
-        """
+#         Issue:
+#         - code fetch_vps -> Done
+#         - Adjust data versus Raw data -> 
+#         - Khai bao so bars de scrape chuan data hon -> Done
+#         - Check self.appluy_rate_delay + tim cach balance speed va avoid_block_api -> Done
+#         - LiveOhlcv KO dc raise errorn -> Done
+#         """
 
 
-        live_config = config.copy()
-        symbol = config["original_symbol"]
-        cached_df = self._load_from_cache(symbol, "1m")
+#         live_config = config.copy()
+#         symbol = config["original_symbol"]
+#         cached_df = self._load_from_cache(symbol, "1m")
 
-        now = pd.Timestamp.now()
+#         now = pd.Timestamp.now()
 
-        if cached_df is not None and not cached_df.empty and "datetime" in cached_df.columns:
-            cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
-            last_dt = cached_df["datetime"].max() 
-            req_start = last_dt + pd.Timedelta(minutes=1)
-        else:
-            req_start = now.normalize() - pd.DateOffset(years=1)
+#         if cached_df is not None and not cached_df.empty and "datetime" in cached_df.columns:
+#             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
+#             last_dt = cached_df["datetime"].max() 
+#             req_start = last_dt + pd.Timedelta(minutes=1)
+#         else:
+#             req_start = now.normalize() - pd.DateOffset(years=1)
 
-        if req_start >= now:
-            req_start = now
+#         if req_start >= now:
+#             req_start = now
 
-        live_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
-        live_config["time_end"] = now.strftime("%Y-%m-%d %H:%M:%S")
-        live_config["target_interval"] = "1m"
-        live_config["base_interval"] = "1m"
-        live_config["requires_resampling"] = False
-        live_config["live_vps"] = self._is_vietnam_live_provider(config["provider"])
-        live_config["start_ts_sec"], live_config["end_ts_sec"] = _ValidateInputParams._to_unix_seconds(
-            str(req_start), str(now)
-        )
-        live_config["start_ts_ms"] = live_config["start_ts_sec"] * 1000
-        live_config["end_ts_ms"] = live_config["end_ts_sec"] * 1000
+#         live_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
+#         live_config["time_end"] = now.strftime("%Y-%m-%d %H:%M:%S")
+#         live_config["target_interval"] = "1m"
+#         live_config["base_interval"] = "1m"
+#         live_config["requires_resampling"] = False
+#         live_config["live_vps"] = self._is_vietnam_live_provider(config["provider"])
+#         live_config["start_ts_sec"], live_config["end_ts_sec"] = GeneralUtils._to_unix_seconds(
+#             str(req_start), str(now)
+#         )
+#         live_config["start_ts_ms"] = live_config["start_ts_sec"] * 1000
+#         live_config["end_ts_ms"] = live_config["end_ts_sec"] * 1000
 
-        return live_config
+#         return live_config
 
-    # Just fetch data, no need bar_live
-    # MISSING Data for papertrade and livetrade would be dealt later
-    def fetch_live(self) -> Dict[str, pd.DataFrame]:
-        results = {}
+#     # Just fetch data, no need bar_live
+#     # MISSING Data for papertrade and livetrade would be dealt later
+#     def fetch_live(self) -> Dict[str, pd.DataFrame]:
+#         results = {}
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_config = {}
+#         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+#             future_to_config = {}
 
-            for config in self.symbol_configs:
-                live_config = self._prepare_live_config(config)
-                future_to_config[executor.submit(self._load_single_symbol, live_config)] = live_config
+#             for config in self.symbol_configs:
+#                 live_config = self._prepare_live_config(config)
+#                 future_to_config[executor.submit(self._load_single_symbol, live_config)] = live_config
 
-            for future in as_completed(future_to_config):
-                config = future_to_config[future]
-                symbol = config["original_symbol"]
-                _, df, error = future.result()
+#             for future in as_completed(future_to_config):
+#                 config = future_to_config[future]
+#                 symbol = config["original_symbol"]
+#                 _, df, error = future.result()
 
-                if error is not None:
-                    _, err_msg = error
-                    print(f"'{(symbol.split(":", 1)[1] if symbol.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else symbol)}':{PURPLE}{err_msg}{RESET}")
+#                 if error is not None:
+#                     _, err_msg = error
+#                     print(f"'{(symbol.split(":", 1)[1] if symbol.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else symbol)}':{PURPLE}{err_msg}{RESET}")
                                     
 
-                results[f"{symbol}_1m"] = df
+#                 results[f"{symbol}_1m"] = df
 
-        return results
+#         return results
 
 
 # -----------------------------------------------------------------------------
