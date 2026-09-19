@@ -377,7 +377,7 @@ class AdjustData:
         if self.config["provider"] == "tv_vnfuture" and self.config["symbol"] == "VN30F1M":
             return self._adjust_vnf1m(data)
         if self.config["provider"] == "tv_vnstock":
-            return self._adjust_vnstock(data)
+            pass
         return data
 
 
@@ -1278,15 +1278,15 @@ class OhlcvGenerator:
                 except Exception as exc:
                     err_name, err_msg = type(exc).__name__, str(exc)
                     results[f"{sym}_{tf}"] = (err_name, err_msg)
-                    failed_symbol.append((sym, err_name, err_msg))
+                    failed_symbol.append((sym, tf, err_name, err_msg))
 
                     print(f"{DARK_RED}Fail to load {sym}_{tf}{RESET}")
 
         if failed_symbol:
             print(' ')
             print(f"{RED}Failure reason:{RESET}")
-            for sym, err_name, err_msg in failed_symbol:
-                print(f"'{(sym.split(":", 1)[1] if sym.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else sym)}': {PURPLE}{err_msg}{RESET}")
+            for sym, tf, err_name, err_msg in failed_symbol:
+                print(f"'{(sym.split(":", 1)[1] if sym.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else sym)}_{tf}': {PURPLE}{err_msg}{RESET}")
 
         return results
 
