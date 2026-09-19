@@ -286,12 +286,16 @@ class TvSocket:
                     "request_more_data",
                     [
                         self.chart_session,
-                        "sds_1",      # verify this id is correct
+                        "s1",
                         next_chunk,
                     ],
                 )
 
             time.sleep(0.3)
 
-        return self.__create_df(raw_data, symbol)
+            df = self.__create_df(raw_data, symbol)
+            if df is not None and not df.empty:
+                return df
+
+        return None
 
