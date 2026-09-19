@@ -760,17 +760,23 @@ class _SingleScraper:
         # Vietnam
         if self.config['provider'] == 'tv_vnstock':
             symbol = "301" if base_symbol == 'UPCOMINDEX' else base_symbol
+            exchange_errors = {}
             for exc in all_exc['tv_vnstock']:
                 try:
                     check_data = tv.get_hist(symbol=symbol, exchange=exc, interval=interval, n_bars=total_bars)
                     if check_data is not None and not check_data.empty:
                         break
-                except Exception:
+                except Exception as error:
+                    exchange_errors[exc] = str(error)
                     continue  
             else:
+                details = "; ".join(
+                    f"{exchange}: {error}" for exchange, error in exchange_errors.items()
+                )
                 raise RuntimeError(
-                    f"Could not scrape data for Vietnam stock {base_symbol}. "
-                    f"Your requests may be blocked. Try again later")
+                    f"No data was returned for Vietnam stock {base_symbol}"
+                    f"This could be due to: wrong ticker name, unavailable datetime, request blocked."
+                    + (f" Exchange errors: {details}" if details else ""))
             
         elif self.config['provider'] == 'tv_vnfuture':
             symbol = 'VN30'
@@ -784,9 +790,13 @@ class _SingleScraper:
                 except Exception:
                     continue  
             else:
+                details = "; ".join(
+                    f"{exchange}: {error}" for exchange, error in exchange_errors.items())
+                
                 raise RuntimeError(
-                    f"Could not scrape data for Vietnam future {base_symbol}. "
-                    f"Your requests may be blocked. Try again later")
+                    f"No data was returned for Vietnam Future contract {base_symbol}"
+                    f"This could be due to: wrong ticker name, unavailable datetime, request blocked."
+                    + (f" Exchange errors: {details}" if details else ""))
 
             
         # US - ongoing
@@ -802,7 +812,7 @@ class _SingleScraper:
             else:
                 raise RuntimeError(
                     f"Could not scrape data for US stock {base_symbol}. "
-                    f"Your requests may be blocked. Try again later")
+                    f"Ticker does not exist. Please check naming convention.")
 
 
         # Commodity and Macro
@@ -819,7 +829,7 @@ class _SingleScraper:
             else:
                 raise RuntimeError(
                     f"Could not scrape data for commodity or macro index {base_symbol}. "
-                    f"Your requests may be blocked. Try again later")
+                    f"Ticker does not exist. Please check naming convention.")
 
         else:
             raise RuntimeError("Wrong ticker name, please check naming convention")
@@ -1127,7 +1137,6 @@ class OhlcvGenerator:
 
 
         # 2. If not found in cache or Datetime is missing -> fetch new
-
         # New cfg 
         fetch_config = config.copy()
         fetch_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
@@ -1245,12 +1254,12 @@ class OhlcvGenerator:
                 if error is not None:
                     err_name, err_msg = error
                     results[f"{sym}_{tf}"] = (err_name, err_msg)
-                    failed_symbol.append((sym, err_name, err_msg))
+                    failed_symbol.append((sym, tf, err_name, err_msg))
                     continue
                 if df is None or df.empty:
                     error = ("ValueError", f"{sym}_{tf} returned empty dataframe")
                     results[f"{sym}_{tf}"] = error
-                    failed_symbol.append((sym, *error))
+                    failed_symbol.append((sym, tf, *error))
                     continue
 
                 load_dependency = lambda dep_cfg: self._generate_depending_data(dep_cfg, dep_exe, dep_fut, dep_loc)
