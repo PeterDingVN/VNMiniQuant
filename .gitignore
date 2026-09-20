@@ -1,15 +1,18 @@
 .idea/
 __pycache__/
+.pytest_cache/
 *.pyc
 
 _0_testing_note/
 0_testing_note/
 
-DataApi/ohlcv/_research_data/
-DataApi/ohlcv/_live_data/
+Data/ohlcv/_research_data/
+Data/ohlcv/_live_data/
 
 alpha/
 Alpha/
 
 Alpha_Repo/
 Backtest/alpha_position/
+
+Trading/AlphaInUse/
