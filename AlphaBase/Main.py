@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import re
 
-from DataApi import OhlcvGenerator
+from Data import OhlcvGenerator
 from Backtest import FinanceBacktest, TaStatTest, CorrTest
 from .Helper import StandardizedDataDict
 from TrainingEngine import TrainTA, TrainTestSplit

@@ -140,7 +140,7 @@ class WalkForwardSplit:
 
 if __name__ == '__main__':
     import pandas as pd
-    agr = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\DataApi\cached_data\CTS_10m.csv')
+    agr = pd.read_csv(r'C:\Users\HP\.0_PycharmProjects\VNMiniQuant_main\Data\cached_data\CTS_10m.csv')
     agr_ls = WalkForwardSplit(k_fold=3, test_size=0.5).split(data=agr)
     print(agr_ls)
 
