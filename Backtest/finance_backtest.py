@@ -155,19 +155,15 @@ class VnFutureRule:
     rollover_fee_pts: float = Fee.fee['vn_future']
 
     def apply(self, data: pd.DataFrame) -> pd.DataFrame:
-        data = data.copy()
         dts = pd.to_datetime(data[self.dt_col])
-        
-        dates = dts.dt.date
-        is_third_thursday = (dts.dt.weekday == 3) & (dts.dt.day >= 15) & (dts.dt.day <= 21)
-        
-        # Extract the exact DataFrame index for the LAST bar of each 3rd Thursday
-        expiry_subset = data[is_third_thursday]
-        last_expiry_indices = expiry_subset.groupby(dates[is_third_thursday]).tail(1).index
-        data["rollover_fee"] = 0.0
-        data.loc[last_expiry_indices, "rollover_fee"] = self.rollover_fee_pts * 2
+        dates = dts.dt.normalize()
+        is_third_friday = (dts.dt.weekday == 4) & dts.dt.day.between(15, 21)
+        is_first_row_of_day = ~dates.duplicated(keep="first")
+
+        data.loc[is_third_friday & is_first_row_of_day, "position"] = 0
 
         return data
+
 
 
 
@@ -408,8 +404,7 @@ class FinanceMetrics:
         if self.fee_type in ['vn_stock', 'vn_stock_no_adv', 'crypto']:
             one_way_fee = Fee.fee[self.fee_type] * df['close']
         else:
-            rollover_fee = df['rollover_fee']
-            one_way_fee = Fee.fee[self.fee_type] + rollover_fee
+            one_way_fee = Fee.fee[self.fee_type]
 
         df['fee'] = one_way_fee * df['pos_change'].abs()
 
