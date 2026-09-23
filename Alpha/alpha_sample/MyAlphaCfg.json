@@ -1,0 +1,39 @@
+{
+      "tv_username": "None",
+      "tv_password": "None",
+      "update_data": "False",
+      "data": [
+            {
+                  "symbol": "vn30f1m",
+                  "timeframe": "30m",
+                  "time_start": "2020-09-03 09:15:00",
+                  "time_end": "2023-12-31 14:00:00"
+            },
+            {
+                  "symbol": "vn30f1m",
+                  "timeframe": "15m",
+                  "time_start": "2018-01-02 09:15:00",
+                  "time_end": "2024-12-31 14:25:00"
+            }
+      ],
+      "bt_cfg": {
+            "fee_type": "vn_stock",
+            "initial_capital": 100000000,
+            "currency": "vnd",
+            "allocation_per_trade": 1,
+            "fixed_allocation": "True",
+            "risk_free_rate": 0.0
+      },
+      "alpha_cfg": {
+            "filename": "MyAlpha",
+            "classname": "DonchianBreakout",
+            "alpha_type": "ta",
+            "params": {
+                  "don_lookback": 53,
+                  "ema_lookback": 10,
+                  "atr_lookback": 90,
+                  "long_atr_mult": 2.4000000000000004,
+                  "short_atr_mult": 7.0
+            }
+      }
+}
