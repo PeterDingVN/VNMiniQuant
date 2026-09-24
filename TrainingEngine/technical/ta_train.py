@@ -189,32 +189,15 @@ class TrainTA:
         def objective(trial):
 
             current_params = self.config['alpha_cfg']['params']
-            params = {}
+            params = current_params.copy()
 
-            # Sample every parameter from either param_range or default value
-            all_param_names = set(current_params) | set(param_range)
-
-            for name in all_param_names:
-                if name in param_range:
-                    params[name] = _suggest_from_spec(
-                        trial=trial,
-                        name=name,
-                        spec=param_range[name],
-                        default_value=current_params.get(name),
-                    )
-                else:
-                    default_value = current_params[name]
-
-                    if isinstance(default_value, bool):
-                        params[name] = trial.suggest_categorical(name, [default_value])
-                    elif isinstance(default_value, str):
-                        params[name] = trial.suggest_categorical(name, [default_value])
-                    elif isinstance(default_value, int):
-                        params[name] = trial.suggest_int(name, default_value, default_value)
-                    elif isinstance(default_value, float):
-                        params[name] = trial.suggest_float(name, default_value, default_value)
-                    else:
-                        params[name] = default_value
+            for name, spec in param_range.items():
+                params[name] = _suggest_from_spec(
+                    trial=trial,
+                    name=name,
+                    spec=spec,
+                    default_value=current_params.get(name),
+                )
 
             config = copy.deepcopy(self.config)
             config["alpha_cfg"]["params"] = params
@@ -259,7 +242,9 @@ class TrainTA:
         study = optuna.create_study(direction=self.opt_dir)
         study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(max_patience=700)])
 
-        return study.best_params
+        best_params = self.config['alpha_cfg']['params'].copy()
+        best_params.update(study.best_params)
+        return best_params
     
 # python -m TrainingEngine.technical.ta_train
 if __name__ == '__main__':
