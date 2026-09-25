@@ -80,7 +80,7 @@ class TaStatTest:
         }
 
     def future_leak(self, data: pd.DataFrame, min_perf_drop: float = 0.2) -> Dict[str, Any]:
-        sys.stdout.write("\033[35mChecking future leak ...\033[0m")
+        sys.stdout.write("Checking future leak ...")
         sys.stdout.flush()
 
         n_iter = 20
@@ -177,7 +177,7 @@ class TaStatTest:
 
     def overfit(self, data: pd.DataFrame, oos_ratio: float):
 
-        sys.stdout.write("\033[35mChecking overfit ...\033[0m")
+        sys.stdout.write("Checking overfit ...")
         sys.stdout.flush()
 
 
