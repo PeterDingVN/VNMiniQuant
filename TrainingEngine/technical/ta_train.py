@@ -3,10 +3,12 @@ import re
 from typing import List, Tuple
 import copy
 from dataclasses import dataclass
+import json
 
 import pandas as pd
 import numpy as np
 import optuna
+from IPython.display import clear_output
 
 from TrainingEngine.utils.data_split import TrainTestSplit, WalkForwardSplit
 from Backtest import FinanceMetrics, ZeroPosError
@@ -106,9 +108,11 @@ class NoImproveStop:
             self.best_vals = trial.value
             self.best_trial = trial.number
 
-        current_step = trial.number // 500
+        # Only applies Max_patience after 600 folds
+        current_step = trial.number // 600
+
         if current_step > self.last_step:
-            self.patience *= 0.4 
+            self.patience = int(self.patience * 0.4) 
             self.last_step = current_step
 
         if self.best_trial is not None:
@@ -186,6 +190,17 @@ class TrainTA:
             raise TypeError(f"{name}: str or bool must be in List, int or float in Tuple")
 
 
+        def report_best_trial(study, trial):
+            clear_output(wait=True)
+            print(f"Current trial {trial.number + 1}/{self.n_trials}")
+            if study.best_trials:
+                best_trial = study.best_trial
+                print("Best trial:")
+                print(f"- Trial {best_trial.number}")
+                print(f"- {self.opt_metric.title()} {best_trial.value:.5f}")
+                print(f"- Parameters: {json.dumps(best_trial.params)}")
+
+
         def objective(trial):
 
             current_params = self.config['alpha_cfg']['params']
@@ -228,19 +243,24 @@ class TrainTA:
             score = np.asarray(scores)
             mean_score = np.mean(score)
             median_score = np.median(score)
-            spread = np.abs(score - median_score)
 
-            # Sublinear penalty
-            penalty = np.mean(np.sqrt(spread))
+            # Median Absolute Deviation (MAD)
+            penalty = np.mean(np.abs(score - median_score))
 
             if self.opt_dir == "maximize":
-                return mean_score - 0.25 * penalty
+                score = mean_score - 0.65 * penalty
+                return score
             else:
-                return mean_score + 0.25 * penalty
-            
+                score = mean_score + 0.65 * penalty
+                return score
 
+
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
         study = optuna.create_study(direction=self.opt_dir)
-        study.optimize(objective, n_trials=self.n_trials, callbacks=[NoImproveStop(max_patience=700)])
+        study.optimize(objective,
+            n_trials=self.n_trials,
+            callbacks=[report_best_trial, NoImproveStop(max_patience=700)],
+        )
 
         best_params = self.config['alpha_cfg']['params'].copy()
         best_params.update(study.best_params)
