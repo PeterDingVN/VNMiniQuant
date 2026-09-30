@@ -373,17 +373,174 @@ class AdjustData:
         self.config = config
         self.dependency_loader = dependency_loader
 
-    def adjust(self, data: pd.DataFrame) -> pd.DataFrame:
+    def adjust(
+        self,
+        data: Optional[pd.DataFrame],
+        cache_data: Optional[pd.DataFrame] = None,
+        scrape_data: Optional[pd.DataFrame] = None,
+    ) -> pd.DataFrame:
         if self.config["provider"] == "tv_vnfuture" and self.config["symbol"] == "VN30F1M":
             return self._adjust_vnf1m(data)
         if self.config["provider"] == "tv_vnstock":
-            pass
+            return self._adjust_vnstock(data, cache_data=cache_data, scrape_data=scrape_data)
         return data
 
 
     # Adjust Vietnam Stock
-    def _adjust_vnstock(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass
+    def _adjust_vnstock(
+        self,
+        df: Optional[pd.DataFrame] = None,
+        cache_data: Optional[pd.DataFrame] = None,
+        scrape_data: Optional[pd.DataFrame] = None,
+    ) -> pd.DataFrame:
+
+        def _normalize(frame: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+            # Std datetime col
+            if frame is None or frame.empty:
+                return frame
+            out = frame.copy()
+            out.columns = [str(col).lower() for col in out.columns]
+            if "datetime" not in out.columns:
+                for key in ["t", "time", "timestamp", "timestamps", "date", "dates", "datetime", "datetimes"]:
+                    if key in out.columns:
+                        out = out.rename(columns={key: "datetime"})
+                        break
+            if "datetime" in out.columns:
+                out["datetime"] = pd.to_datetime(out["datetime"])
+            if "datetime" in out.columns:
+                out = out.sort_values("datetime").drop_duplicates(subset="datetime", keep="last").reset_index(drop=True)
+            return out
+
+        def _merge_unique(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
+            merged = pd.concat([left, right], ignore_index=True)
+            merged = merged.sort_values("datetime").drop_duplicates(subset="datetime", keep="last").reset_index(drop=True)
+            return merged
+
+        if df is not None and cache_data is None and scrape_data is None:
+            return _normalize(df) if df is not None else df
+
+        if cache_data is None or cache_data.empty:
+            return _normalize(df) if df is not None else df
+
+        if scrape_data is None or scrape_data.empty:
+            return _normalize(cache_data)
+
+        cache = _normalize(cache_data)
+        scrape = _normalize(scrape_data)
+
+        if cache is None or cache.empty:
+            return scrape
+        if scrape is None or scrape.empty:
+            return cache
+
+        if "datetime" not in cache.columns or "datetime" not in scrape.columns:
+            return _merge_unique(cache, scrape)
+
+        price_cols = [c for c in ["open", "high", "low", "close"] 
+                      if c in cache.columns and c in scrape.columns]
+        if not price_cols:
+            return _merge_unique(cache, scrape)
+
+        cache_start = cache["datetime"].min()
+        cache_end = cache["datetime"].max()
+        scrape_start = scrape["datetime"].min()
+        scrape_end = scrape["datetime"].max()
+
+        # Case A: newly scraped data covers the whole historical cache.
+        if scrape_start <= cache_start and scrape_end >= cache_end:
+            return scrape.sort_values("datetime").reset_index(drop=True)
+
+        # Case B: partial overlap with future extension.
+        overlap = pd.merge(
+            cache[["datetime"]],
+            scrape[["datetime"]],
+            on="datetime",
+            how="inner",
+        )
+        if not overlap.empty:
+            overlap_df = pd.merge(
+                cache[["datetime"] + price_cols],
+                scrape[["datetime"] + price_cols],
+                on="datetime",
+                how="inner",
+                suffixes=("_cache", "_scrape"),
+            )
+
+            # ratio_candidates = []
+            # for c in price_cols:
+            #     cache_col = f"{c}_cache"
+            #     scrape_col = f"{c}_scrape"
+            #     valid = (
+            #         overlap_df[cache_col].notna()
+            #         & overlap_df[scrape_col].notna()
+            #         & (overlap_df[cache_col].abs() > 0)
+            #     )
+            #     if valid.any():
+            #         ratio_candidates.extend((overlap_df.loc[valid, scrape_col] / overlap_df.loc[valid, cache_col]).tolist())
+
+            valid = (
+                overlap_df["close_cache"].notna()
+                & overlap_df["close_scrape"].notna()
+            )
+            ratio_candidates = overlap_df.loc[valid, "close_scrape"] / overlap_df.loc[valid, "close_cache"]
+            ratio = float(np.median(ratio_candidates)) if float(np.median(ratio_candidates)) > 1e-4 else 1.0
+            if not np.isfinite(ratio):
+                ratio = 1.0
+
+            adjusted_cache = cache.copy()
+            if not np.isclose(ratio, 1.0, rtol=1e-6, atol=1e-8):
+                hist_mask = adjusted_cache["datetime"] < scrape_start
+                if hist_mask.any():
+                    for c in price_cols:
+                        adjusted_cache.loc[hist_mask, c] = adjusted_cache.loc[hist_mask, c].astype(float) * ratio
+
+            return _merge_unique(adjusted_cache, scrape)
+
+        # Case C: no temporal overlap.
+        dependency_config = self.config.copy()
+        dependency_config.update({
+            "original_symbol": self.config.get("original_symbol", self.config.get("symbol")),
+            "symbol": self.config.get("symbol"),
+            "provider": self.config.get("provider"),
+            "target_interval": "1d",
+            "base_interval": "1d",
+            "requires_resampling": False,
+            "time_start": (pd.Timestamp(cache_end) - pd.Timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S"),
+            "time_end": (pd.Timestamp(scrape_start) + pd.Timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+        daily_ref = None
+        if self.dependency_loader is not None:
+            try:
+                daily_ref = self.dependency_loader(dependency_config)
+            except Exception:
+                daily_ref = None
+
+        if daily_ref is None or daily_ref.empty:
+            return _merge_unique(cache, scrape)
+        daily_ref = _normalize(daily_ref)
+        if daily_ref is None or daily_ref.empty or "close" not in daily_ref.columns:
+            return _merge_unique(cache, scrape)
+
+        boundary_date = cache_end.normalize()
+        same_day = daily_ref[daily_ref["datetime"].dt.normalize() == boundary_date]
+        if same_day.empty:
+            return _merge_unique(cache, scrape)
+
+        ref_close = float(same_day["close"].iloc[-1])
+        old_close = float(cache.loc[cache["datetime"] == cache_end, "close"].iloc[-1])
+        if not np.isfinite(old_close) or abs(old_close) < 1e-12:
+            return _merge_unique(cache, scrape)
+
+        ratio = ref_close / old_close
+        if not np.isfinite(ratio) or np.isclose(ratio, 1.0, rtol=1e-6, atol=1e-8):
+            return _merge_unique(cache, scrape)
+
+        adjusted_cache = cache.copy()
+        for c in price_cols:
+            adjusted_cache[c] = adjusted_cache[c].astype(float) * ratio
+
+        return _merge_unique(adjusted_cache, scrape)
 
     
     # Adjust VN30F1M
@@ -775,7 +932,7 @@ class _SingleScraper:
                 )
                 raise RuntimeError(
                     f"No data was returned for Vietnam stock {base_symbol}"
-                    f"This could be due to: wrong ticker name, unavailable datetime, request blocked."
+                    f" This could be due to: wrong ticker name, unavailable datetime, request blocked."
                     + (f" Exchange errors: {details}" if details else ""))
             
         elif self.config['provider'] == 'tv_vnfuture':
@@ -795,7 +952,7 @@ class _SingleScraper:
                 
                 raise RuntimeError(
                     f"No data was returned for Vietnam Future contract {base_symbol}"
-                    f"This could be due to: wrong ticker name, unavailable datetime, request blocked."
+                    f" This could be due to: wrong ticker name, unavailable datetime, request blocked."
                     + (f" Exchange errors: {details}" if details else ""))
 
             
@@ -803,7 +960,6 @@ class _SingleScraper:
         elif self.config['provider'] == 'tv_usstock':
             for exc in all_exc['tv_usstock']:
                 try:
-                    print
                     check_data = tv.get_hist(symbol=base_symbol, exchange=exc, interval=interval, n_bars=total_bars)
                     if check_data is not None and not check_data.empty:
                         break
@@ -812,7 +968,7 @@ class _SingleScraper:
             else:
                 raise RuntimeError(
                     f"Could not scrape data for US stock {base_symbol}. "
-                    f"Ticker does not exist. Please check naming convention.")
+                    f" Ticker does not exist. Please check naming convention.")
 
 
         # Commodity and Macro
@@ -829,7 +985,7 @@ class _SingleScraper:
             else:
                 raise RuntimeError(
                     f"Could not scrape data for commodity or macro index {base_symbol}. "
-                    f"Ticker does not exist. Please check naming convention.")
+                    f" Ticker does not exist. Please check naming convention.")
 
         else:
             raise RuntimeError("Wrong ticker name, please check naming convention")
@@ -931,82 +1087,6 @@ class _SingleScraper:
         return df
 
 
-    # fetch live for Vietnam securities
-    def _fetch_vps(self) -> pd.DataFrame:
-        
-        symbol = self.config["symbol"]
-        start_sec = int(self.config["start_ts_sec"])
-        end_sec = int(self.config["end_ts_sec"])
-
-        
-
-        url = "https://histdatafeed.vps.com.vn/tradingview/history"
-        all_candles = []
-        current_start = start_sec
-        resolution = 1
-
-        while current_start < end_sec:
-
-            params = {
-                "symbol": symbol,
-                "resolution": resolution,
-                "from": current_start,
-                "to": end_sec,
-            }
-            
-            resp = self.session.get(url, params=params, headers=Headers.headers_vps, timeout=70)
-            resp.raise_for_status()
-            data = resp.json()
-
-            if not data:
-                break
-            if data.get("s") != "ok":
-                break
-            timestamps = data.get("t", [])
-            if not timestamps:
-                break
-
-            opens = data.get("o", [])
-            highs = data.get("h", [])
-            lows = data.get("l", [])
-            closes = data.get("c", [])
-            volumes = data.get("v", [])
-
-            for i, ts in enumerate(timestamps):
-                if ts > end_sec:
-                    break
-
-                all_candles.append({
-                    "datetime": ts,
-                    "open": float(opens[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(opens[i]),
-                    "high": float(highs[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(highs[i]),
-                    "low": float(lows[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(lows[i]),
-                    "close": float(closes[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(closes[i]),
-                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
-                })
-
-            
-            if timestamps[-1] >= end_sec:
-                break
-        
-            next_start = timestamps[-1] + 1
-            if next_start <= current_start:
-                break
-            current_start = next_start
-
-
-        df = pd.DataFrame(all_candles)
-        if not df.empty:
-            df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
-            df = (df
-                .drop_duplicates(subset="datetime")
-                .sort_values("datetime")
-                .reset_index(drop=True))
-            
-        return df
-  
-
-
 
 
 # ============ Component 3: RESEARCH DATA SCRAPER ===============
@@ -1074,14 +1154,14 @@ class OhlcvGenerator:
         req_start = pd.to_datetime(config["time_start"])
         req_end = pd.to_datetime(config["time_end"])
 
-        # if tf.lower().endswith("d"):
-        #     req_start = req_start.normalize()
-        #     req_end = req_end.normalize()
-
         # 1. Check if data exist -> if enough -> take from cache
         cached_df = CachingData._load_from_cache(symbol, tf, self.cache_dir)
 
+        cache_snapshot = None
+        use_vnstock_reconciliation = (config.get("provider") == "tv_vnstock")
         if cached_df is not None and not cached_df.empty:
+            if use_vnstock_reconciliation:
+                cache_snapshot = cached_df.copy()
 
             # lowercase cols
             cached_df = cached_df.rename(columns=str.lower)
@@ -1151,6 +1231,7 @@ class OhlcvGenerator:
 
         if isinstance(result, pd.DataFrame) and not result.empty:
 
+            scrape_snapshot = result.copy() if use_vnstock_reconciliation else None
             result["datetime"] = pd.to_datetime(result["datetime"])
 
             if cached_df is not None and not cached_df.empty:
@@ -1176,13 +1257,18 @@ class OhlcvGenerator:
             # Save raw data
             CachingData._save_to_cache(symbol, result, tf, self.cache_dir) 
             if show_log:
-                print(f"Downloaded {symbol}_{tf} to cache")
+                print(f"Downloaded some/all {symbol}_{tf} to cache")
+
+            if use_vnstock_reconciliation:
+                return (symbol, result, None, cache_snapshot, scrape_snapshot)
             return (symbol, result, None)
         
         else:
             _, _, err_name, err_msg = result
             if show_log:
                 print(f"{DARK_RED}Fail to load {symbol}_{tf}{RESET}")
+            if use_vnstock_reconciliation:
+                return (symbol, None, (err_name, err_msg), None, None)
             return (symbol, None, (err_name, err_msg))
 
 
@@ -1199,7 +1285,11 @@ class OhlcvGenerator:
                 future = dep_exe.submit(self._load_single_symbol, dep_cfg, False)
                 dep_fut[key] = future
 
-        sym, df, error = future.result()
+        payload = future.result()
+        if len(payload) == 5:
+            sym, df, error, _, _ = payload
+        else:
+            sym, df, error = payload
         if error is not None:
             err_name, err_msg = error
             raise RuntimeError(
@@ -1210,7 +1300,7 @@ class OhlcvGenerator:
             raise ValueError(
                 f"Empty depending data {sym}_{dep_cfg['target_interval']}"
             )
-        
+
         return df
 
 
@@ -1238,18 +1328,26 @@ class OhlcvGenerator:
             for future in as_completed(future_to_cfg):
                 cfg = future_to_cfg[future]
                 try:
-                    sym, df, error = future.result()
+                    payload = future.result()
+                    if len(payload) == 5:
+                        sym, df, error, cache_snapshot, scrape_snapshot = payload
+                    else:
+                        sym, df, error = payload
+                        cache_snapshot = None
+                        scrape_snapshot = None
                 except Exception as exc:
                     sym = cfg["original_symbol"]
                     df = None
                     error = (type(exc).__name__, str(exc))
-                phase1_results.append((cfg, sym, df, error))
+                    cache_snapshot = None
+                    scrape_snapshot = None
+                phase1_results.append((cfg, sym, df, error, cache_snapshot, scrape_snapshot))
 
 
 
             # PHASE 2: adjust successful raw frames concurrently.
             adjust_futures = {}
-            for cfg, sym, df, error in phase1_results:
+            for cfg, sym, df, error, cache_snapshot, scrape_snapshot in phase1_results:
                 tf = cfg["target_interval"]
                 if error is not None:
                     err_name, err_msg = error
@@ -1263,9 +1361,18 @@ class OhlcvGenerator:
                     continue
 
                 load_dependency = lambda dep_cfg: self._generate_depending_data(dep_cfg, dep_exe, dep_fut, dep_loc)
+                if cfg.get("provider") == "tv_vnstock":
+                    adjust_kwargs = {
+                        "cache_data": cache_snapshot,
+                        "scrape_data": scrape_snapshot,
+                    }
+                else:
+                    adjust_kwargs = {}
+
                 future = executor.submit(
                     AdjustData(cfg, load_dependency).adjust,
                     df,
+                    **adjust_kwargs,
                 )
                 adjust_futures[future] = (cfg, sym, tf)
 
@@ -1302,149 +1409,224 @@ class OhlcvGenerator:
 
 
 # ============ Component 4: LIVE DATA SCRAPER ===============
-"""
-- Research co mot so bottle neck nhu:
-    + Ko goi duoc Concurrent Per Symbol
-    + Exchange fallback dung for loop
-    + Call Data VNF2M trong adjust data VN30F1M -> block path cua VN30F1M --> Sol: CHi adjjst cuoi phien, trong phien KO ADJUst
-                                                => Trong session, KO CAN ADJUST, close = fillna(close_raw)
+class LiveOhlcv:
+    """
+    - Research co mot so bottle neck nhu:
+        + Ko goi duoc Concurrent Per Symbol
+        + Exchange fallback dung for loop
+        + Call Data VNF2M trong adjust data VN30F1M -> block path cua VN30F1M --> Sol: CHi adjjst cuoi phien, trong phien KO ADJUst
+                                                    => Trong session, KO CAN ADJUST, close = fillna(close_raw)
 
-==> Deploy Live can GIAM BOT TINH NANG, tap trung vao toc do
+    ==> Deploy Live can GIAM BOT TINH NANG, tap trung vao toc do
 
-"""
-# class LiveOhlcvGenerator(OhlcvGenerator):
-#     def __init__(self, data_cfg: Dict[str, Any], max_workers: int = 5):
-#         self.data_cfg = data_cfg
-#         self.live_cache_dir = os.path.join(
-#             os.path.dirname(os.path.abspath(__file__)),
-#             "_live_data"
-#         )
-#         os.makedirs(self.live_cache_dir, exist_ok=True)
+    """
+    # class LiveOhlcvGenerator(OhlcvGenerator):
+    #     def __init__(self, data_cfg: Dict[str, Any], max_workers: int = 5):
+    #         self.data_cfg = data_cfg
+    #         self.live_cache_dir = os.path.join(
+    #             os.path.dirname(os.path.abspath(__file__)),
+    #             "_live_data"
+    #         )
+    #         os.makedirs(self.live_cache_dir, exist_ok=True)
 
-#         data_items = data_cfg.get("data")
-#         symbols = [item["symbol"] for item in data_items]
+    #         data_items = data_cfg.get("data")
+    #         symbols = [item["symbol"] for item in data_items]
 
-#         now = pd.Timestamp.now()
-#         start = now.normalize() - pd.DateOffset(years=1)
-#         end = now
+    #         now = pd.Timestamp.now()
+    #         start = now.normalize() - pd.DateOffset(years=1)
+    #         end = now
 
-#         super().__init__(
-#             symbol=symbols,
-#             timeframe=["1m"] * len(symbols),
-#             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
-#             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
-#             update_data=True,
-#             username=data_cfg.get("tv_username", "None"),
-#             password=data_cfg.get("tv_password", "None"),
-#             max_workers=max_workers,
-#             cache_dir=self.live_cache_dir
-#         )
+    #         super().__init__(
+    #             symbol=symbols,
+    #             timeframe=["1m"] * len(symbols),
+    #             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
+    #             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
+    #             update_data=True,
+    #             username=data_cfg.get("tv_username", "None"),
+    #             password=data_cfg.get("tv_password", "None"),
+    #             max_workers=max_workers,
+    #             cache_dir=self.live_cache_dir
+    #         )
 
-#         self._ensure_live_cache()
+    #         self._ensure_live_cache()
 
-#     def _ensure_live_cache(self) -> None:
-#         missing_symbols = []
+    #     def _ensure_live_cache(self) -> None:
+    #         missing_symbols = []
 
-#         for cfg in self.symbol_configs:
-#             cache_path = self._get_cache_path(cfg["original_symbol"], "1m")
-#             if not os.path.exists(cache_path):
-#                 missing_symbols.append(cfg["original_symbol"])
+    #         for cfg in self.symbol_configs:
+    #             cache_path = self._get_cache_path(cfg["original_symbol"], "1m")
+    #             if not os.path.exists(cache_path):
+    #                 missing_symbols.append(cfg["original_symbol"])
 
-#         if not missing_symbols:
-#             return
+    #         if not missing_symbols:
+    #             return
 
-#         now = pd.Timestamp.now()
-#         start = now.normalize() - pd.DateOffset(years=1)
-#         end = now
+    #         now = pd.Timestamp.now()
+    #         start = now.normalize() - pd.DateOffset(years=1)
+    #         end = now
 
-#         generator = OhlcvGenerator(
-#             symbol=missing_symbols,
-#             timeframe="1m" if len(missing_symbols) == 1 else ["1m"] * len(missing_symbols),
-#             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
-#             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
-#             update_data=True,
-#             username=self.data_cfg.get("tv_username", "None"),
-#             password=self.data_cfg.get("tv_password", "None"),
-#             max_workers=self.max_workers,
-#             cache_dir=self.live_cache_dir
-#         )
-#         generator.generate()
+    #         generator = OhlcvGenerator(
+    #             symbol=missing_symbols,
+    #             timeframe="1m" if len(missing_symbols) == 1 else ["1m"] * len(missing_symbols),
+    #             time_start=start.strftime("%Y-%m-%d %H:%M:%S"),
+    #             time_end=end.strftime("%Y-%m-%d %H:%M:%S"),
+    #             update_data=True,
+    #             username=self.data_cfg.get("tv_username", "None"),
+    #             password=self.data_cfg.get("tv_password", "None"),
+    #             max_workers=self.max_workers,
+    #             cache_dir=self.live_cache_dir
+    #         )
+    #         generator.generate()
 
-#     def _is_vietnam_live_provider(self, provider: str) -> bool:
-#         return provider in {"tv_vnstock", "tv_vnfuture"}
+    #     def _is_vietnam_live_provider(self, provider: str) -> bool:
+    #         return provider in {"tv_vnstock", "tv_vnfuture"}
 
-#     def _prepare_live_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    #     def _prepare_live_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
 
-#         """
-#         Live config da:
-#         - copy config cua user -> ko anh huong den config viet gi
-#         - live_data tach biet research_data -> good
-        
+    #         """
+    #         Live config da:
+    #         - copy config cua user -> ko anh huong den config viet gi
+    #         - live_data tach biet research_data -> good
+            
 
-#         Issue:
-#         - code fetch_vps -> Done
-#         - Adjust data versus Raw data -> 
-#         - Khai bao so bars de scrape chuan data hon -> Done
-#         - Check self.appluy_rate_delay + tim cach balance speed va avoid_block_api -> Done
-#         - LiveOhlcv KO dc raise errorn -> Done
-#         """
+    #         Issue:
+    #         - code fetch_vps -> Done
+    #         - Adjust data versus Raw data -> 
+    #         - Khai bao so bars de scrape chuan data hon -> Done
+    #         - Check self.appluy_rate_delay + tim cach balance speed va avoid_block_api -> Done
+    #         - LiveOhlcv KO dc raise errorn -> Done
+    #         """
 
 
-#         live_config = config.copy()
-#         symbol = config["original_symbol"]
-#         cached_df = self._load_from_cache(symbol, "1m")
+    #         live_config = config.copy()
+    #         symbol = config["original_symbol"]
+    #         cached_df = self._load_from_cache(symbol, "1m")
 
-#         now = pd.Timestamp.now()
+    #         now = pd.Timestamp.now()
 
-#         if cached_df is not None and not cached_df.empty and "datetime" in cached_df.columns:
-#             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
-#             last_dt = cached_df["datetime"].max() 
-#             req_start = last_dt + pd.Timedelta(minutes=1)
-#         else:
-#             req_start = now.normalize() - pd.DateOffset(years=1)
+    #         if cached_df is not None and not cached_df.empty and "datetime" in cached_df.columns:
+    #             cached_df["datetime"] = pd.to_datetime(cached_df["datetime"])
+    #             last_dt = cached_df["datetime"].max() 
+    #             req_start = last_dt + pd.Timedelta(minutes=1)
+    #         else:
+    #             req_start = now.normalize() - pd.DateOffset(years=1)
 
-#         if req_start >= now:
-#             req_start = now
+    #         if req_start >= now:
+    #             req_start = now
 
-#         live_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
-#         live_config["time_end"] = now.strftime("%Y-%m-%d %H:%M:%S")
-#         live_config["target_interval"] = "1m"
-#         live_config["base_interval"] = "1m"
-#         live_config["requires_resampling"] = False
-#         live_config["live_vps"] = self._is_vietnam_live_provider(config["provider"])
-#         live_config["start_ts_sec"], live_config["end_ts_sec"] = GeneralUtils._to_unix_seconds(
-#             str(req_start), str(now)
-#         )
-#         live_config["start_ts_ms"] = live_config["start_ts_sec"] * 1000
-#         live_config["end_ts_ms"] = live_config["end_ts_sec"] * 1000
+    #         live_config["time_start"] = req_start.strftime("%Y-%m-%d %H:%M:%S")
+    #         live_config["time_end"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    #         live_config["target_interval"] = "1m"
+    #         live_config["base_interval"] = "1m"
+    #         live_config["requires_resampling"] = False
+    #         live_config["live_vps"] = self._is_vietnam_live_provider(config["provider"])
+    #         live_config["start_ts_sec"], live_config["end_ts_sec"] = GeneralUtils._to_unix_seconds(
+    #             str(req_start), str(now)
+    #         )
+    #         live_config["start_ts_ms"] = live_config["start_ts_sec"] * 1000
+    #         live_config["end_ts_ms"] = live_config["end_ts_sec"] * 1000
 
-#         return live_config
+    #         return live_config
 
-#     # Just fetch data, no need bar_live
-#     # MISSING Data for papertrade and livetrade would be dealt later
-#     def fetch_live(self) -> Dict[str, pd.DataFrame]:
-#         results = {}
+    #     # Just fetch data, no need bar_live
+    #     # MISSING Data for papertrade and livetrade would be dealt later
+    #     def fetch_live(self) -> Dict[str, pd.DataFrame]:
+    #         results = {}
 
-#         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-#             future_to_config = {}
+    #         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+    #             future_to_config = {}
 
-#             for config in self.symbol_configs:
-#                 live_config = self._prepare_live_config(config)
-#                 future_to_config[executor.submit(self._load_single_symbol, live_config)] = live_config
+    #             for config in self.symbol_configs:
+    #                 live_config = self._prepare_live_config(config)
+    #                 future_to_config[executor.submit(self._load_single_symbol, live_config)] = live_config
 
-#             for future in as_completed(future_to_config):
-#                 config = future_to_config[future]
-#                 symbol = config["original_symbol"]
-#                 _, df, error = future.result()
+    #             for future in as_completed(future_to_config):
+    #                 config = future_to_config[future]
+    #                 symbol = config["original_symbol"]
+    #                 _, df, error = future.result()
 
-#                 if error is not None:
-#                     _, err_msg = error
-#                     print(f"'{(symbol.split(":", 1)[1] if symbol.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else symbol)}':{PURPLE}{err_msg}{RESET}")
-                                    
+    #                 if error is not None:
+    #                     _, err_msg = error
+    #                     print(f"'{(symbol.split(":", 1)[1] if symbol.split(":", 1)[0] in ['VN', 'CP', 'C&M', "VNF"] else symbol)}':{PURPLE}{err_msg}{RESET}")
+                                        
 
-#                 results[f"{symbol}_1m"] = df
+    #                 results[f"{symbol}_1m"] = df
 
-#         return results
+    #         return results
+
+        # def _fetch_vps(self) -> pd.DataFrame:
+                
+        #         symbol = self.config["symbol"]
+        #         start_sec = int(self.config["start_ts_sec"])
+        #         end_sec = int(self.config["end_ts_sec"])
+
+                
+
+        #         url = "https://histdatafeed.vps.com.vn/tradingview/history"
+        #         all_candles = []
+        #         current_start = start_sec
+        #         resolution = 1
+
+        #         while current_start < end_sec:
+
+        #             params = {
+        #                 "symbol": symbol,
+        #                 "resolution": resolution,
+        #                 "from": current_start,
+        #                 "to": end_sec,
+        #             }
+                    
+        #             resp = self.session.get(url, params=params, headers=Headers.headers_vps, timeout=70)
+        #             resp.raise_for_status()
+        #             data = resp.json()
+
+        #             if not data:
+        #                 break
+        #             if data.get("s") != "ok":
+        #                 break
+        #             timestamps = data.get("t", [])
+        #             if not timestamps:
+        #                 break
+
+        #             opens = data.get("o", [])
+        #             highs = data.get("h", [])
+        #             lows = data.get("l", [])
+        #             closes = data.get("c", [])
+        #             volumes = data.get("v", [])
+
+        #             for i, ts in enumerate(timestamps):
+        #                 if ts > end_sec:
+        #                     break
+
+        #                 all_candles.append({
+        #                     "datetime": ts,
+        #                     "open": float(opens[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(opens[i]),
+        #                     "high": float(highs[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(highs[i]),
+        #                     "low": float(lows[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(lows[i]),
+        #                     "close": float(closes[i]) * 1000 if self.config['provider'] == 'tv_vnstock' else float(closes[i]),
+        #                     "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+        #                 })
+
+                    
+        #             if timestamps[-1] >= end_sec:
+        #                 break
+                
+        #             next_start = timestamps[-1] + 1
+        #             if next_start <= current_start:
+        #                 break
+        #             current_start = next_start
+
+
+        #         df = pd.DataFrame(all_candles)
+        #         if not df.empty:
+        #             df["datetime"] = pd.to_datetime(df["datetime"], unit="s")
+        #             df = (df
+        #                 .drop_duplicates(subset="datetime")
+        #                 .sort_values("datetime")
+        #                 .reset_index(drop=True))
+                    
+        #         return df
+    pass
 
 
 # -----------------------------------------------------------------------------
