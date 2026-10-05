@@ -97,7 +97,7 @@ class TaStatTest:
         start_warmup = self._warmup_start()
         min_chunk_len = int(max(n_total * 0.2, start_warmup))
 
-        iterations_log = []
+        iterations_log = 0
         iter_i = 1
 
         while iter_i <= n_iter + 1:
@@ -113,6 +113,8 @@ class TaStatTest:
             try:
                 base_eval = self._metric_eval(chunk_df)
             except ZeroPosError:
+                iter_i += 1
+                iterations_log += 1
                 continue
 
             # Shifted run on chunk (shifted by 1 bar)
@@ -123,6 +125,8 @@ class TaStatTest:
             try:
                 shifted_eval = self._metric_eval(chunk_shifted)
             except ZeroPosError:
+                iter_i += 1
+                iterations_log += 1
                 continue
 
             # Measure performance degradation
@@ -154,14 +158,6 @@ class TaStatTest:
             if has_diff:
                 diff_count += 1
 
-            iterations_log.append({
-                "iter": iter_i,
-                "is_drop": is_drop,
-                "has_diff": has_diff,
-                "sharpe_drop": float(sharpe_drop),
-                "ret_drop": float(ret_drop),
-            })
-
             iter_i += 1
 
         sys.stdout.write("\r\033[2K")
@@ -170,6 +166,11 @@ class TaStatTest:
         if drop_count > 8 or diff_count >= 1:
             sys.stdout.write("\r\033[K\033[31mFail future leak test.\033[0m")
             sys.stdout.flush()
+
+        elif iterations_log > n_iter-3:
+            sys.stdout.write("\r\033[K\033[31mFail future leak test as Too Many ZeroPos fold.\033[0m")
+            sys.stdout.flush()
+
         else:
             sys.stdout.write("\r\033[K\033[32mPass future leak test.\033[0m")
             sys.stdout.flush()
