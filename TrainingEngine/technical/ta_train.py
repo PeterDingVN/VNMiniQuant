@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import numpy as np
 import optuna
+import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
 from TrainingEngine.utils.data_split import TrainTestSplit, WalkForwardSplit
@@ -163,6 +164,8 @@ class TrainTA:
         is_data_list: List[pd.DataFrame],
         param_range: dict
     ) -> dict:
+        
+        fold_results = []
 
         def _suggest_from_spec(trial, name: str, spec, default_value=None):
             if spec is None:
@@ -249,19 +252,44 @@ class TrainTA:
 
             if self.opt_dir == "maximize":
                 score = mean_score - 0.65 * penalty
+                fold_results.append(score)
                 return score
             else:
                 score = mean_score + 0.65 * penalty
+                fold_results.append(score)
                 return score
 
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         study = optuna.create_study(direction=self.opt_dir)
+
+        # In-tune print
         study.optimize(objective,
             n_trials=self.n_trials,
             callbacks=[report_best_trial, NoImproveStop(max_patience=700)],
         )
 
+        # Summary print
+        fold_results = np.array(fold_results)
+        fold_results = fold_results[fold_results > -100]
+        training_results = pd.Series(fold_results[fold_results>-100], name=self.opt_metric)
+        tab = pd.DataFrame(training_results.describe())
+        tab.loc['skew'] = training_results.skew()
+        tab.loc['ex_kurt'] = training_results.kurt()
+
+        print("\nTraining summary")
+        print(tab)
+        plt.figure(figsize=(8, 4.5))
+        plt.hist(training_results, bins=10, color='#1f77b4', edgecolor='none')
+        plt.title("Distribution of tuned value")
+        plt.grid(False)
+        plt.axvline(x=0, color='red', linestyle='--')
+        plt.xlabel("Value")
+        plt.ylabel("Frequency")
+        plt.tight_layout()
+        plt.show()
+
+        # Save best params
         best_params = self.config['alpha_cfg']['params'].copy()
         best_params.update(study.best_params)
         return best_params
