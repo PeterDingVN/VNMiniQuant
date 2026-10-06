@@ -408,7 +408,7 @@ class FinanceMetrics:
 
         df['fee'] = one_way_fee * df['pos_change'].abs()
 
-        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.01)  # slippage 1%
+        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.05)  # slippage 1%
 
         # Absolute Pnl
         df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum().ffill().fillna(0)
