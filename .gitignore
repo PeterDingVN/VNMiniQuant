@@ -9,8 +9,9 @@ _0_testing_note/
 Data/ohlcv/_research_data/
 Data/ohlcv/_live_data/
 
-alpha/
-Alpha/
+Alpha/AlphaRepo
+Alpha/TradingAlpha
+Alpha/ResearchAlpha
 
 Alpha_Repo/
 Backtest/alpha_position/
