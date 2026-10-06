@@ -67,6 +67,7 @@ class TaStatTest:
         mdd_val = metrics.MDD()[1]
         tot_ret, ret_per_year, cagr = metrics.Return()
         total_profit, profit_after_fee_per_year = metrics.Profit()
+        trade = metrics.Total_Trade()[0] + metrics.Total_Trade()[1]
 
         return {
             "sharpe": float(sharpe),
@@ -77,6 +78,7 @@ class TaStatTest:
             "cagr": float(cagr),
             "total_profit": float(total_profit),
             "profit_after_fee_per_year": float(profit_after_fee_per_year),
+            "trades_count": int(trade)
         }
 
     def future_leak(self, data: pd.DataFrame, min_perf_drop: float = 0.2) -> Dict[str, Any]:
@@ -168,7 +170,7 @@ class TaStatTest:
             sys.stdout.flush()
 
         elif iterations_log > n_iter-3:
-            sys.stdout.write("\r\033[K\033[31mFail future leak test as Too Many ZeroPos fold.\033[0m")
+            sys.stdout.write("\r\033[K\033[38;5;214mUnable to check future leak.\033[0m")
             sys.stdout.flush()
 
         else:
@@ -185,19 +187,26 @@ class TaStatTest:
         # In-Sample Baseline Sharpe
         df_base = data.copy()
         df_base["position"] = np.asarray(self.alpha.run(df_base))
-        base_sr = self._metric_eval(df_base)['sharpe']
 
 
         # -----------------------------------------------------------------
         # Prelim check for overfit
         # -----------------------------------------------------------------
 
+        # Unable to check if too few trades
+        if self._metric_eval(df_base)['trades_count'] < 200:
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write("\r\033[K\033[38;5;214mUnable to check overfit.\033[0m")
+            sys.stdout.flush()
+            return 
+
         # Fail immediately if Sharpe <= 0
+        base_sr = self._metric_eval(df_base)['sharpe']
         if base_sr <= 0:
             sys.stdout.write("\r\033[2K")
             sys.stdout.write("\r\033[K\033[31mFail overfit because of negative Sharpe\033[0m\n")
             sys.stdout.flush()
-            return False
+            return 
 
         # Check if IS is too far from OS -> fail
         is_df, oos_df = TrainTestSplit(test_size=oos_ratio).split(data)

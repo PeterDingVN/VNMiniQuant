@@ -274,18 +274,27 @@ class TrainTA:
         fold_results = fold_results[fold_results > -100]
         training_results = pd.Series(fold_results[fold_results>-100], name=self.opt_metric)
         tab = pd.DataFrame(training_results.describe())
+        tab.loc['median'] = training_results.median()
         tab.loc['skew'] = training_results.skew()
         tab.loc['ex_kurt'] = training_results.kurt()
 
         print("\nTraining summary")
         print(tab)
         plt.figure(figsize=(8, 4.5))
-        plt.hist(training_results, bins=10, color='#1f77b4', edgecolor='none')
-        plt.title("Distribution of tuned value")
-        plt.grid(False)
-        plt.axvline(x=0, color='red', linestyle='--')
+        plt.hist(training_results, bins=10, color="#2f56c1", edgecolor='none')
+
+        plt.title(f"Distribution of {self.opt_metric}")
         plt.xlabel("Value")
         plt.ylabel("Frequency")
+        plt.grid(False)
+
+        plt.axvline(x=0, color="#ff471e", linestyle='--')
+        plt.plot([], [], linestyle='none', label=f"Mean: {training_results.mean():.3f}")
+        plt.plot([], [], linestyle='none', label=f"Median: {training_results.median():.3f}")
+        plt.plot([], [], linestyle='none', label=f"Stdev: {training_results.std():.3f}")
+        
+
+        plt.legend()
         plt.tight_layout()
         plt.show()
 
