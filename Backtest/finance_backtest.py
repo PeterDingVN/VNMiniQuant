@@ -395,7 +395,13 @@ class FinanceMetrics:
 
         
     def Gains_Calculation_Simple(self, df): 
-        df['pos_change'] = df['position'].diff().ffill().fillna(df['position'].iloc[0])
+        # Signal Trades (Alpha generate signal, Backtest do sizing)
+        # 1) force all pos into 1, 0, -1
+        df['position'] = np.sign(
+                            df['position'].ffill().fillna(df['position'].iloc[0]).fillna(0)
+                            ).astype(int)
+
+        df['pos_change'] = df['position'].diff().fillna(0)
 
         # Gain
         df['gain'] = df['position'].shift(1) * df['close'].diff()
@@ -408,19 +414,19 @@ class FinanceMetrics:
 
         df['fee'] = one_way_fee * df['pos_change'].abs()
 
-        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.05)  # slippage 1%
+        df['gain_after_fee'] = df['gain'] - (df['fee'] * 1.05)  # slippage 5%
 
         # Absolute Pnl
         df['cum_gain_after_fee'] = df['gain_after_fee'].cumsum().ffill().fillna(0)
         df['total_equity'] = self.initial_capital + df['cum_gain_after_fee']
 
 
-        # Scale "position" by alloc_per_trade -> pos = 1 with price x but I could buy 2x -> pos = 2
-        # Fix allocation: allocate a fix pct of fixed initial capital 
+        # Sizing Trades (signal = 1, I want buy 2 => scale = 2 -> pos = 2)
+        # 1) Fix allocation: allocate a fix pct of fixed initial capital 
         if self.fixed_allocation:
             df['scaler'] =  self.available_capital / df['close']
 
-        # Growing equity: allocate a fix pct of growing current equity
+        # 2) Growing equity: allocate a fix pct of growing current equity
         else:
             df['scaler'] = (df['total_equity'] * self.allocation_per_trade) / df['close']
 
