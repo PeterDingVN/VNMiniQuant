@@ -210,6 +210,7 @@ class TaStatTest:
 
         # Check if IS is too far from OS -> fail
         is_df, oos_df = TrainTestSplit(test_size=oos_ratio).split(data)
+        is_df, oos_df = is_df.reset_index(), oos_df.reset_index()
         is_df['position'] = np.asarray(self.alpha.run(is_df))
         oos_df['position'] = np.asarray(self.alpha.run(oos_df))
 
