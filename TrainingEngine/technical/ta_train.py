@@ -196,12 +196,14 @@ class TrainTA:
 
         def report_best_trial(study, trial):
             clear_output(wait=True)
-            print(f"Current trial {trial.number + 1}/{self.n_trials}")
+            print(f"Current trial")
+            print(f"- Trial {trial.number + 1}/{self.n_trials}")
+            print(f"- {self.opt_metric.title()}: {trial.value:.5f}")
             if study.best_trials:
                 best_trial = study.best_trial
                 print("Best trial:")
                 print(f"- Trial {best_trial.number}")
-                print(f"- {self.opt_metric.title()} {best_trial.value:.5f}")
+                print(f"- {self.opt_metric.title()}: {best_trial.value:.5f}")
                 print(f"- Parameters: {json.dumps(best_trial.params)}")
 
 
