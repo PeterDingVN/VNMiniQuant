@@ -63,7 +63,7 @@ class TaStatTest:
         bt_cfg = self.config['bt_cfg']
         metrics = FinanceMetrics(df=df, **bt_cfg)
 
-        sharpe, sortino = metrics.Sharpe_after_fee()
+        sharpe, sortino, _ = metrics.Sharpe_after_fee()
         mdd_val = metrics.MDD()[1]
         tot_ret, ret_per_year, cagr = metrics.Return()
         total_profit, profit_after_fee_per_year = metrics.Profit()
