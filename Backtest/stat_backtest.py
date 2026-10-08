@@ -204,7 +204,7 @@ class TaStatTest:
         base_sr = self._metric_eval(df_base)['sharpe']
         if base_sr <= 0:
             sys.stdout.write("\r\033[2K")
-            sys.stdout.write("\r\033[K\033[31mFail overfit because of negative Sharpe\033[0m\n")
+            sys.stdout.write("\r\033[K\033[31mFail overfit test\033[0m\n")
             sys.stdout.flush()
             return 
 
