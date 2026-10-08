@@ -20,6 +20,7 @@ class Metric:
     metric_map = {
         "sharpe": lambda bt: bt.Sharpe_after_fee()[0],
         "sortino": lambda bt: bt.Sharpe_after_fee()[1],
+        "volatility": lambda bt: bt.Sharpe_after_fee()[2],
         "calmar": lambda bt: bt.Calmar(),
         "cagr": lambda bt: bt.Return()[2],
         "mdd": lambda bt: bt.MDD()[1],

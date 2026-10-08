@@ -473,7 +473,7 @@ class FinanceMetrics:
 
         sharpe_after_fee = (daily_ret.mean()/ std_ret) * np.sqrt(self.trade_period)
         sortino = (daily_ret.mean()/ std_loss_ret) * np.sqrt(self.trade_period)
-        return sharpe_after_fee, sortino
+        return sharpe_after_fee, sortino, std_ret
 
 
     def Calmar(self):
