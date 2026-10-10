@@ -275,7 +275,9 @@ class TrainTA:
         # Summary print
         fold_results = np.array(fold_results)
         fold_results = fold_results[fold_results > -100]
-        training_results = pd.Series(fold_results[fold_results>-100], name=self.opt_metric)
+
+        training_results = pd.Series(fold_results, name=self.opt_metric)
+
         tab = pd.DataFrame(training_results.describe())
         tab.loc['median'] = training_results.median()
         tab.loc['skew'] = training_results.skew()
@@ -283,21 +285,45 @@ class TrainTA:
 
         print("\nTraining summary")
         print(tab)
-        plt.figure(figsize=(8, 4.5))
-        plt.hist(training_results, bins=10, color="#2f56c1", edgecolor='none')
 
-        plt.title(f"Distribution of {self.opt_metric}")
-        plt.xlabel("Value")
-        plt.ylabel("Frequency")
-        plt.grid(False)
+        _, axes = plt.subplots(1, 2, figsize=(14, 4.5))
 
-        plt.axvline(x=0, color="#ff471e", linestyle='--')
-        plt.plot([], [], linestyle='none', label=f"Mean: {training_results.mean():.3f}")
-        plt.plot([], [], linestyle='none', label=f"Median: {training_results.median():.3f}")
-        plt.plot([], [], linestyle='none', label=f"Stdev: {training_results.std():.3f}")
-        
+                # 1. Training distribution
+        ax = axes[0]
+        ax.hist(training_results, bins=10, color="#2f56c1", edgecolor='none')
 
-        plt.legend()
+        ax.set_title(f"Distribution of {self.opt_metric}")
+        ax.set_xlabel("Value")
+        ax.set_ylabel("Frequency")
+        ax.axvline(x=0, color="#ff471e", linestyle='--')
+
+        ax.plot([], [], linestyle='none',
+                label=f"Mean: {training_results.mean():.3f}")
+        ax.plot([], [], linestyle='none',
+                label=f"Median: {training_results.median():.3f}")
+        ax.plot([], [], linestyle='none',
+                label=f"Stdev: {training_results.std():.3f}")
+
+        ax.legend(loc="upper left")
+        ax.grid(False)
+
+                # 2. Training convergence process
+        ax = axes[1]
+        fold_numbers = np.arange(1, len(training_results) + 1)
+
+        ax.plot(
+            fold_numbers,
+            training_results.values,
+            color="#ff8c00",
+            linewidth=1.5
+        )
+        ax.xaxis.set_major_locator(plt.AutoLocator())
+
+        ax.set_title(f"{self.opt_metric.capitalize()} by folds")
+        ax.set_xlabel("Fold")
+        ax.set_ylabel("Value")
+        ax.grid(False)
+
         plt.tight_layout()
         plt.show()
 
