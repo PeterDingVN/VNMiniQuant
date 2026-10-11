@@ -57,7 +57,7 @@ class TaStatTest:
         for col in df.columns:
             if col != "datetime":
                 df[col] = df[col].shift(shift_bars)
-        return df
+        return df.ffill().dropna()
 
     def _metric_eval(self, df: pd.DataFrame) -> Dict[str, Any]:
         bt_cfg = self.config['bt_cfg']
@@ -89,8 +89,8 @@ class TaStatTest:
         drop_count = 0
         diff_count = 0
 
-        
-        full_df = data.copy()
+        full_df = data.drop(columns='position').copy() if 'position' in data.columns else\
+                  data.copy()
         full_pos = pd.Series(self.alpha.run(full_df))
         full_df["position"] = full_pos.values
 
@@ -104,13 +104,12 @@ class TaStatTest:
 
         while iter_i <= n_iter + 1:
             chunk_len = np.random.randint(min_chunk_len, n_total + 1)
-            chunk = data.iloc[0 : chunk_len]
+            chunk = full_df.drop(columns='position').iloc[0 : chunk_len]
 
-            # Baseline run on chunk
+            # Baseline CHUNK
             chunk_df = chunk.reindex()
             pos_chunk = pd.Series(self.alpha.run(chunk_df))
             chunk_df["position"] = pos_chunk.values
-
 
             try:
                 base_eval = self._metric_eval(chunk_df)
@@ -119,8 +118,8 @@ class TaStatTest:
                 iterations_log += 1
                 continue
 
-            # Shifted run on chunk (shifted by 1 bar)
-            chunk_shifted = self._shift_input(chunk_df, shift_bars=1)
+            # Shifted CHUNK (shifted by 1 bar)
+            chunk_shifted = self._shift_input(chunk.reindex(), shift_bars=1)
             pos_shifted = pd.Series(self.alpha.run(chunk_shifted))
             chunk_shifted["position"] = pos_shifted.values
 
@@ -131,7 +130,7 @@ class TaStatTest:
                 iterations_log += 1
                 continue
 
-            # Measure performance degradation
+            # Test 1: Measure performance degradation
             base_sharpe = base_eval.get("sharpe", np.nan)
             shifted_sharpe = shifted_eval.get("sharpe", np.nan)
             base_ret = base_eval.get("total_return", np.nan)
@@ -146,7 +145,7 @@ class TaStatTest:
             if is_drop:
                 drop_count += 1
 
-            # Compare chunk positions against full data positions using exact datetime reference
+            # Test 2: Align Chunk Pos against Full Original Pos at Same Datetime Index
             orig_pos_chunk = full_df.set_index("datetime")["position"].reindex(chunk["datetime"])
             curr_pos_chunk = pos_chunk
 
