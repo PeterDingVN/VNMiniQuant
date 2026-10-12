@@ -499,7 +499,6 @@ class FinanceMetrics:
             cash_max = peak
 
         mdd_pct = ((peak - equity)/cash_max * 100).max()
-        
 
         # Date
         mdd_trough_date = dd_abs.idxmax()
@@ -514,14 +513,12 @@ class FinanceMetrics:
                     (self.df['position'].shift(1).fillna(0).isin([0, -1])) &
                     (self.df['position'] == 1)
                     ).sum()
-            
-
         short_count = (
                     (self.df['position'].shift(1).fillna(0).isin([0, 1])) &
                     (self.df['position'] == -1)
                     ).sum()
-
         return long_count, short_count
+
     
     def Trade_per_day(self):
         all_trades = self.Total_Trade()[0] + self.Total_Trade()[1]
@@ -555,21 +552,29 @@ class FinanceMetrics:
 
         return total_return, return_per_year, cagr
 
-    
-    def Hitrate(self):
-        longs = self.df[self.df['position']>0]['gain_after_fee']
-        shorts = self.df[self.df['position']<0]['gain_after_fee']
-        alls = self.df[self.df['position']!=0]['gain_after_fee']
-        # Long hitrate
-        long_hitrate = len(longs[longs>0])/len(longs) * 100 if len(longs)>0 else 0
 
-        # Short hitrate
-        short_hitrate = len(shorts[shorts>0])/len(shorts) * 100 if len(shorts)>0 else 0
-
-        # Total hr
-        hitrate_total = len(alls[alls>0])/len(alls) * 100 if len(alls)>0 else 0
-
+    def Hitrate_by_trade(self):
+        ev = self.df['pos_change'] != 0
+        seg = self.df.loc[ev, 'cum_gain_after_fee'].diff().fillna(0)
+        prev_pos = self.df['position'].shift(1).loc[ev]
+        n_long, n_short = self.Total_Trade()[0], self.Total_Trade()[1]
+        def hr(wins, n):
+            return wins / n * 100 if n > 0 else 0.0
+        long_hitrate = hr((seg[prev_pos > 0] > 0).sum(), n_long)
+        short_hitrate = hr((seg[prev_pos < 0] > 0).sum(), n_short)
+        hitrate_total = hr((seg > 0).sum(), n_long + n_short)
         return long_hitrate, short_hitrate, hitrate_total
+
+
+    def Hitrate_by_time(self):
+        s = self.df['gain_after_fee']
+        if not isinstance(s.index, pd.DatetimeIndex):
+            s = s.set_axis(pd.to_datetime(self.df['datetime'])) 
+        def hr(rule):
+            g = s.resample(rule).sum()
+            g = g[g != 0]                     
+            return (g > 0).sum() / len(g) * 100 if len(g) > 0 else 0.0
+        return hr('D'), hr('W'), hr('ME'), hr('YE')
 
 
     def Longest_streak(self):
@@ -619,43 +624,73 @@ class FinanceBacktest:
                                 risk_free_rate=self.risk_free_rate)
 
         margin = fin_bt.Margin()
-
         sharpe_and_sor = fin_bt.Sharpe_after_fee()
         calmar = fin_bt.Calmar()
         mdd_3 = fin_bt.MDD()
-
         return_3 = fin_bt.Return()
         profit_3 = fin_bt.Profit()
-
-        hitrate_2 = fin_bt.Hitrate()
-
+        hitrate_2 = fin_bt.Hitrate_by_trade()
+        hit_time = fin_bt.Hitrate_by_time()
         trade_2 = fin_bt.Total_Trade()
         tpd = fin_bt.Trade_per_day()
-
         streak_2 = fin_bt.Longest_streak()
 
+        def make_section(title, rows, width=63):
+            border = "+" + "-" * width + "+"
+            header = "+" + f" {title} ".center(width, "-") + "+"
+            lines = [header]
+            for label, value in rows:
+                lines.append(f"| {label:<23} {str(value):>37} |")
+            lines.append(border)
+            return "\n".join(lines)
 
-        return f"""
-    Initial capital: {fin_bt.initial_capital:,.2f}
-     Ending capital: {fin_bt.df['scaled_equity'].iloc[-1]:,.2f}
-             Sharpe: {sharpe_and_sor[0]:.2f}
-            Sortino: {sharpe_and_sor[1]:.2f}
-             Calmar: {calmar:.2f}
-                MDD: {mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%); {mdd_3[2]}
-       Total Profit: {profit_3[0]:,.2f}
-   Margin per Trade: {margin:.2f} bps
-       Total Return: {return_3[0]:.2f}%
- Avg. Annual Return: {return_3[1]:.2f}%
-Comp. Annual Return: {return_3[2]:.2f}%
-       Hitrate Long: {hitrate_2[0]:.2f}%
-      Hitrate Short: {hitrate_2[1]:.2f}%
-      Total Hitrate: {hitrate_2[2]:.2f}%
-        Longest Win: {streak_2[0]} days
-       Longest Loss: {streak_2[1]} days
-      Trade per Day: {tpd:.2f}
-        Long Trades: {trade_2[0]}
-       Short Trades: {trade_2[1]}
-"""
+        report = "\n".join([
+            # 1. Capital
+            make_section("CAPITAL", [
+                ("Initial capital", f"{fin_bt.initial_capital:,.2f}"),
+                ("Ending capital", f"{fin_bt.df['scaled_equity'].iloc[-1]:,.2f}"),
+            ]),
+
+            # 2. Risk
+            make_section("RISK", [
+                ("Sharpe", f"{sharpe_and_sor[0]:.2f}"),
+                ("Sortino", f"{sharpe_and_sor[1]:.2f}"),
+                ("Calmar", f"{calmar:.2f}"), 
+                ("MDD", f"{mdd_3[0]:,.2f} ({mdd_3[1]:.2f}%)")
+            ]),
+
+            # 3. Returns
+            make_section("RETURNS", [
+                ("Total Profit", f"{profit_3[0]:,.2f}"),
+                ("Total Return", f"{return_3[0]:.2f}%"),
+                ("Avg. Annual Return", f"{return_3[1]:.2f}%"),
+                ("Comp. Annual Return", f"{return_3[2]:.2f}%"),
+                ("Margin per Trade", f"{margin:.2f} bps"),
+            ]),
+
+            # 4. Success Rate
+            make_section("WIN RATE", [
+                ("Hitrate Long", f"{hitrate_2[0]:.2f}%"),
+                ("Hitrate Short", f"{hitrate_2[1]:.2f}%"),
+                ("Total Hitrate", f"{hitrate_2[2]:.2f}%"),
+                ("Daily Hitrate", f"{hit_time[0]:.2f}%"),
+                ("Weekly Hitrate", f"{hit_time[1]:.2f}%"),
+                ("Monthly Hitrate", f"{hit_time[2]:.2f}%"),
+                ("Annual Hitrate", f"{hit_time[3]:.2f}%"),
+                ("Longest Win", f"{streak_2[0]} days"),
+                ("Longest Loss", f"{streak_2[1]} days")
+            ]),
+
+            # 5. Trade Freq
+            make_section("TRADE FREQUENCY", [
+                ("Total Trades", str(trade_2[0] + trade_2[1])),
+                ("Trades per Day", f"{tpd:.2f}"),
+                ("Long Trades", str(trade_2[0])),
+                ("Short Trades", str(trade_2[1])),
+            ])
+        ])
+        return report
+
 
     def plot_equity(self, data: pd.DataFrame):
         fin_bt = FinanceMetrics(df=data, 
