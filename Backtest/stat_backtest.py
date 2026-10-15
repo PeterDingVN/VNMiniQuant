@@ -259,6 +259,7 @@ class TaStatTest:
             context_start = max(0, start_idx - warmup)
 
             fold_df = data.iloc[context_start:end_idx].copy()
+            fold_df = fold_df.reset_index(drop=True)
             fold_df["position"] = np.asarray(self.alpha.run(fold_df))
 
             # Remove warmup period from actual evaluation
