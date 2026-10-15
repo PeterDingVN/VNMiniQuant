@@ -692,7 +692,7 @@ class FinanceBacktest:
         return report
 
 
-    def plot_equity(self, data: pd.DataFrame):
+    def plot_equity(self, data: pd.DataFrame, oos_ratio: float):
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
                                 initial_capital=self.initial_capital, 
@@ -702,6 +702,8 @@ class FinanceBacktest:
                                 risk_free_rate=self.risk_free_rate)
         
         figsize = (22, 10)
+        split_idx = int(len(fin_bt.df) * (1 - oos_ratio))
+        split_date = fin_bt.df.index[split_idx]
         
         sharpe_af = fin_bt.Sharpe_after_fee()[0]
         sharpe = fin_bt.Sharpe()
@@ -719,11 +721,12 @@ class FinanceBacktest:
         equity = fin_bt.df['scaled_equity'][~fin_bt.df['scaled_equity'].isin([np.nan, np.inf, -np.inf])]
         ret = equity / equity.iloc[0] - 1
         
-        axs[0].plot(ret.index, 1+ret_bf, label=f"Sharpe: {sharpe:.2f}", color="blue")
-        axs[0].plot(ret.index, 1+ret, label=f"Sharpe_after_fee: {sharpe_af:.2f}", color="darkorange")
+        axs[0].plot(ret.index, 1+ret_bf, label=f"Sharpe: {sharpe:.2f}", color="#aaaaaa", linewidth=1.5)
+        axs[0].plot(ret.index, 1+ret, label=f"Sharpe_after_fee: {sharpe_af:.2f}", color="#0661ff", linewidth=1.5)
         axs[0].set_title("Strategy Performance", fontsize=TITLE_SIZE)
         axs[0].set_ylabel("Cum. Return", fontsize=LABEL_SIZE)
         axs[0].tick_params(axis='both', labelsize=TICK_SIZE)
+        axs[0].axvline(x=split_date, color="#f50f0f", linestyle="--", linewidth=2, label="IS/OS Split")
         axs[0].legend(fontsize=LEGEND_SIZE, loc="upper left")
         axs[0].grid(True, alpha=0.3)
         
@@ -735,10 +738,11 @@ class FinanceBacktest:
         else:
             daily_dd = (peak - equity)/peak * 100
         
-        axs[1].fill_between(daily_dd.index, daily_dd, 0, color='red', alpha=0.4, label=f"MDD: {daily_dd.max():,.2f}%")
+        axs[1].fill_between(daily_dd.index, daily_dd, 0, color="#f50f0f", alpha=0.4, label=f"MDD: {daily_dd.max():,.2f}%")
         axs[1].set_ylabel("Drawdown (%)", fontsize=LABEL_SIZE)
         axs[1].set_xlabel("Date", fontsize=LABEL_SIZE) 
         axs[1].tick_params(axis='both', labelsize=TICK_SIZE)
+        axs[1].axvline(x=split_date, color="#ed0ff5", linestyle="--", linewidth=2, label="IS/OS Split")
         axs[1].legend(fontsize=LEGEND_SIZE, loc="upper left", framealpha=1)
         axs[1].grid(True, alpha=0.3)
         axs[1].invert_yaxis()
@@ -747,11 +751,11 @@ class FinanceBacktest:
 
 
     # --- PNL REPORT MAIN ---
-    def pnl_report(self, data: pd.DataFrame, plot=True):
+    def pnl_report(self, data: pd.DataFrame, oos_ratio: float, plot=True):
         dash = self.dashboard(data)
         print(dash)
         if plot:
-            self.plot_equity(data)
+            self.plot_equity(data, oos_ratio=oos_ratio)
 
 
 
