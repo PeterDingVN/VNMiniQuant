@@ -23,10 +23,10 @@ from typing import Union
 # ==========================================================================================
 
 # ---- Plot config - font size -----
-TITLE_SIZE = 15
-LABEL_SIZE = 16.5
-TICK_SIZE = 16.5
-LEGEND_SIZE = 16.5
+TITLE_SIZE = 13
+LABEL_SIZE = 12
+TICK_SIZE = 12
+LEGEND_SIZE = 12
 
 
 # ---- Fee One way by Asset class ----
@@ -692,7 +692,7 @@ class FinanceBacktest:
         return report
 
 
-    def plot_equity(self, data: pd.DataFrame, oos_ratio: float):
+    def plot_equity(self, data: pd.DataFrame, oos_ratio: float, tt: str):
         fin_bt = FinanceMetrics(df=data, 
                                 fee_type=self.fee_type, 
                                 initial_capital=self.initial_capital, 
@@ -701,7 +701,7 @@ class FinanceBacktest:
                                 fixed_allocation=self.fixed_allocation,
                                 risk_free_rate=self.risk_free_rate)
         
-        figsize = (22, 10)
+        figsize = (20, 8)
         split_idx = int(len(fin_bt.df) * (1 - oos_ratio))
         split_date = fin_bt.df.index[split_idx]
         
@@ -723,7 +723,7 @@ class FinanceBacktest:
         
         axs[0].plot(ret.index, 1+ret_bf, label=f"Sharpe: {sharpe:.2f}", color="#aaaaaa", linewidth=1.5)
         axs[0].plot(ret.index, 1+ret, label=f"Sharpe_after_fee: {sharpe_af:.2f}", color="#0661ff", linewidth=1.5)
-        axs[0].set_title("Strategy Performance", fontsize=TITLE_SIZE)
+        axs[0].set_title(tt, fontsize=TITLE_SIZE)
         axs[0].set_ylabel("Cum. Return", fontsize=LABEL_SIZE)
         axs[0].tick_params(axis='both', labelsize=TICK_SIZE)
         axs[0].axvline(x=split_date, color="#f50f0f", linestyle="--", linewidth=2, label="IS/OS Split")
@@ -753,9 +753,12 @@ class FinanceBacktest:
     # --- PNL REPORT MAIN ---
     def pnl_report(self, data: pd.DataFrame, oos_ratio: float, plot=True):
         dash = self.dashboard(data)
+        data2 = data.copy()
+        data2['position'] = 1
         print(dash)
         if plot:
-            self.plot_equity(data, oos_ratio=oos_ratio)
+            self.plot_equity(data, oos_ratio=oos_ratio, tt="Strategy Performance")
+            self.plot_equity(data2, oos_ratio=oos_ratio, tt="Buy & Hold Performance")
 
 
 
