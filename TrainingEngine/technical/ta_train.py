@@ -25,7 +25,7 @@ class Metric:
         "cagr": lambda bt: bt.Return()[2],
         "mdd": lambda bt: bt.MDD()[1],
         "return": lambda bt: bt.Return()[1],
-        "hitrate": lambda bt: bt.Hitrate()[2],
+        "hitrate": lambda bt: bt.Hitrate_by_trade()[2],
         "total_trades": lambda bt: bt.Total_Trade()[0] + bt.Total_Trade()[1],
         "profit": lambda bt: bt.Profit()[1]
     }
