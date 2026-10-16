@@ -15,9 +15,9 @@ from .Helper import StandardizedDataDict
 from TrainingEngine import TrainTA, TrainTestSplit
 
 
-ALPHA_DIR = Path(__file__).resolve().parent.parent/ "Alpha" # --> Change this to alpha_sample
+ALPHA_DIR = Path(__file__).resolve().parent.parent/ "Alpha"/ "ResearchAlpha" # --> Change this to 'alpha_sample'
 ALPHA_POS_DIR = Path(__file__).resolve().parent.parent/ "Backtest/alpha_position"
-ALPHA_LOGIC_DIR = Path(__file__).resolve().parent.parent/ "Alpha_Repo"
+ALPHA_LOGIC_DIR = Path(__file__).resolve().parent.parent/ "Alpha/AlphaRepo"
 
 
 BLUE = "\033[38;5;45m"
@@ -37,7 +37,18 @@ class AssetName:
 
 class DataManager:
     @staticmethod
-    def generate(config: List[Dict]) -> pd.DataFrame:
+    def generate(config: List[Dict]) -> pd.DataFrame: 
+        """
+        Nang cap generate:
+        - Detect bo param set -> ohlcv -> Use below
+        - Detect bo alpha, filename, fee_type -> take .py with same name as filename -> if not detect unique .py -> else raise error
+                                             -> detect unique json -> esle raise error
+            ==> Output a class
+            
+        ==> Require change in alpha_sample.py
+        """
+
+
         data_list = config['data']
         data_cfg = {key: [item[key] for item in data_list] for key in data_list[0]}
         tv_username = config['tv_username']
@@ -127,7 +138,7 @@ class AlphaManager:
     def _load_alpha(config: dict):
         if config['alpha_cfg']['alpha_type'] == 'ta':
             alpha_cfg = config["alpha_cfg"]
-            alpha_file = ALPHA_DIR / f'{alpha_cfg["filename"]}.py'
+            alpha_file = ALPHA_DIR / f'{alpha_cfg["filename"]}.py' # --> control uniqueness
 
             if not alpha_file.exists():
                 raise FileNotFoundError(f"Cannot find {alpha_file}. Alpha file must be inside {ALPHA_DIR}")
@@ -141,9 +152,10 @@ class AlphaManager:
 
             try:
                 return getattr(module, alpha_cfg["classname"])
-            except AttributeError as e:
-                raise ImportError(
-                    f"Class '{alpha_cfg['classname']}' not found in {alpha_cfg['filename']}")
+            except AttributeError:
+                print(" ")
+                print(f"\033[91mNO ALPHA CLASS '{alpha_cfg['classname']}' IN ALPHA FILE '{alpha_cfg['filename']}.py'\033[0m")
+                return 
 
         else:
             raise NotImplementedError("ML is under developement, use ta for now!")
@@ -242,42 +254,31 @@ class SystemCoordinator:
 
 
     # ============== BACKTEST ALPHA =====================
-    def backtest(self, data: pd.DataFrame, oos_ratio: float, plot_pnl: bool = True):
+    def backtest(self, data: pd.DataFrame, os_ratio: float, plot_pnl: bool = True):
         if self.config['alpha_cfg']['alpha_type'] == 'ta':
+
+            # alpha
             alpha = self.class_alpha(self.config['alpha_cfg']['params'])
 
             # fin bt
             fin = Backtest.bt_finance(self.config['bt_cfg'])
 
             try:
-                os_ratio = self.oos_ratio
+                oos_ratio = self.oos_ratio
             except AttributeError:
-                if not (0 < oos_ratio < 1):
+                if not (0 < os_ratio < 1):
                     raise ValueError("OOS size must be larger than 0 and smaller than 1")
-                os_ratio = oos_ratio
+                oos_ratio = os_ratio
 
-            train_df, test_df = TrainTestSplit(test_size=os_ratio).split(data)
-
-            print(f"{BLUE} ========== Financial Backtest {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} ==========")
+            print(f"{BLUE} ========== P&L Test - {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =========={RESET}")
 
             # ==========================================
             #               PnL TEST
             # ==========================================
-            for label, df in (("\033[34mIN SAMPLE PERFORMANCE\033[0m", train_df), 
-                            ("\033[34mOUT SAMPLE PERFORMANCE\033[0m", test_df)):
-                print(' ')
-                print(label)
-                pos = alpha.run(df.reset_index())
-                df = df.copy()
-                df.loc[:, 'position'] = np.asarray(pos)
-                fin.pnl_report(df, plot=plot_pnl)
-
-            print(' ')
-            print("\033[34mALL DATA PERFORMANCE\033[0m")
             pos = alpha.run(data.reset_index())
             data = data.copy()
             data.loc[:, 'position'] = np.asarray(pos)
-            fin.pnl_report(data, plot=plot_pnl)
+            fin.pnl_report(data, oos_ratio=oos_ratio, plot=plot_pnl)
 
                     
             # ==========================================
@@ -285,7 +286,7 @@ class SystemCoordinator:
             # ==========================================
 
             # ------- TA -------------
-            print(f"{BLUE} ========== Alpha Robustness Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =========={RESET}")
+            print(f"{BLUE} ========== Robustness Test - {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =========={RESET}")
             self.bt_stat.set_context(alpha=alpha, bt_fin=self.bt_fin, config=self.config)
             self.bt_stat.stat_check(data=data, oos_ratio=oos_ratio)
 
@@ -297,7 +298,7 @@ class SystemCoordinator:
             #               CORRELATION TEST
             # ==========================================
             print(' ')
-            print(f"{BLUE} ========== Correlation Test {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =============={RESET}")
+            print(f"{BLUE} ========== Correlation Test - {AssetName.name_ls[self.config['bt_cfg']['fee_type']]} =============={RESET}")
             self.bt_corr.check_alpha_corr(df=data)
 
         else:
@@ -341,5 +342,3 @@ class SystemCoordinator:
         dst_dir = alpha_logic_dir / name
 
         shutil.copytree(ALPHA_DIR, dst_dir, dirs_exist_ok=True)
-
-
